@@ -1,0 +1,160 @@
+"""Pydantic response models."""
+
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class JournalOut(BaseModel):
+    id: int
+    name: str
+    color_hex: int | None = None
+    description: str | None = None
+    entry_count: int = 0
+
+
+class TagOut(BaseModel):
+    id: int
+    name: str
+    entry_count: int = 0
+
+
+class LocationOut(BaseModel):
+    latitude: float | None = None
+    longitude: float | None = None
+    altitude: float | None = None
+    place_name: str | None = None
+    address: str | None = None
+    locality: str | None = None
+    admin_area: str | None = None
+    country: str | None = None
+
+
+class WeatherOut(BaseModel):
+    temp_celsius: float | None = None
+    conditions: str | None = None
+    weather_code: str | None = None
+    relative_humidity: float | None = None
+    wind_speed_kph: float | None = None
+    pressure_mb: float | None = None
+    visibility_km: float | None = None
+    moon_phase: float | None = None
+    sunrise: datetime | None = None
+    sunset: datetime | None = None
+
+
+class MusicOut(BaseModel):
+    track: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    album_year: int | None = None
+
+
+class AttachmentOut(BaseModel):
+    id: int
+    uuid: str | None = None
+    type: str
+    filename: str | None = None
+    width: int | None = None
+    height: int | None = None
+    caption: str | None = None
+    duration: float | None = None
+    is_favorite: bool = False
+    camera_make: str | None = None
+    camera_model: str | None = None
+    date: datetime | None = None
+    media_url: str | None = None
+
+
+class EntrySummary(BaseModel):
+    id: int
+    uuid: str
+    journal_id: int | None = None
+    journal_name: str | None = None
+    created_at: datetime
+    starred: bool = False
+    pinned: bool = False
+    text_preview: str | None = None
+    location: LocationOut | None = None
+    weather: WeatherOut | None = None
+    music: MusicOut | None = None
+    tags: list[str] = []
+    attachment_count: int = 0
+    thumbnail_url: str | None = None
+
+
+class EntryDetail(BaseModel):
+    id: int
+    uuid: str
+    journal_id: int | None = None
+    journal_name: str | None = None
+    created_at: datetime
+    modified_at: datetime | None = None
+    markdown_text: str | None = None
+    rich_text_json: dict | None = None
+    starred: bool = False
+    pinned: bool = False
+    is_draft: bool = False
+    is_all_day: bool = False
+    duration: int = 0
+    device_name: str | None = None
+    device_model: str | None = None
+    timezone: str | None = None
+    location: LocationOut | None = None
+    weather: WeatherOut | None = None
+    music: MusicOut | None = None
+    tags: list[str] = []
+    attachments: list[AttachmentOut] = []
+
+
+class EntryList(BaseModel):
+    items: list[EntrySummary]
+    next_cursor: str | None = None
+    has_more: bool = False
+    total: int | None = None
+
+
+class CalendarMonth(BaseModel):
+    year: int
+    month: int
+    entry_count: int
+    days: list[int] = []
+
+
+class OnThisDayEntry(BaseModel):
+    year: int
+    entry: EntrySummary
+
+
+class MapEntry(BaseModel):
+    id: int
+    uuid: str
+    created_at: datetime
+    text_preview: str | None = None
+    latitude: float
+    longitude: float
+    place_name: str | None = None
+    thumbnail_url: str | None = None
+
+
+class StatsOut(BaseModel):
+    total_entries: int = 0
+    total_photos: int = 0
+    total_videos: int = 0
+    total_tags: int = 0
+    total_journals: int = 0
+    entries_with_location: int = 0
+    entries_with_weather: int = 0
+    entries_with_music: int = 0
+    starred_entries: int = 0
+    date_range_start: datetime | None = None
+    date_range_end: datetime | None = None
+    entries_by_year: dict[int, int] = {}
+    top_tags: list[TagOut] = []
+    top_locations: list[dict] = []
+
+
+class UserOut(BaseModel):
+    email: str
+    display_name: str
+    role: str
