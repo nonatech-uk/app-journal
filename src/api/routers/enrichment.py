@@ -38,14 +38,15 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
     entry_date = row[0]
     day_start = entry_date.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
-    window_start = entry_date - timedelta(hours=2)
-    window_end = entry_date + timedelta(hours=2)
 
     result = {
         "scrobbles": [],
         "transactions": [],
         "gps_summary": None,
         "tautulli_watches": [],
+        "flights": [],
+        "skiing": [],
+        "watches": [],
     }
 
     # Scrobbles (±2 hours around entry time)
@@ -53,12 +54,25 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
     if settings.scrobble_db_password:
         result["scrobbles"] = _safe_query(
             scrobble_dsn,
-            """SELECT artist, track, album, scrobbled_at
-               FROM scrobble
-               WHERE scrobbled_at BETWEEN %s AND %s
-               ORDER BY scrobbled_at""",
-            (window_start, window_end),
+            """SELECT s.id, ar.name AS artist, t.title AS track,
+                      t.album_title AS album, s.listened_at
+               FROM scrobble s
+               JOIN track t ON t.id = s.track_id
+               JOIN track_artist ta ON ta.track_id = t.id
+               JOIN artist ar ON ar.id = ta.artist_id
+               WHERE s.listened_at >= %s AND s.listened_at < %s
+               ORDER BY s.listened_at""",
+            (day_start, day_end),
         )
+
+        # Check which are already imported into music table
+        cur.execute(
+            "SELECT scrobble_db_id FROM music WHERE entry_id = %s AND scrobble_db_id IS NOT NULL",
+            (entry_id,),
+        )
+        linked_scrobbles = {r[0] for r in cur.fetchall()}
+        for s in result["scrobbles"]:
+            s["linked"] = s["id"] in linked_scrobbles
 
     # Transactions (same day)
     finance_dsn = settings.cross_dsn(settings.finance_db_name, settings.finance_db_user, settings.finance_db_password)
@@ -87,5 +101,100 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
         )
         if gps_rows:
             result["gps_summary"] = gps_rows[0]
+
+    # Flights (same day, exclude route records)
+    if settings.mylocation_db_password:
+        result["flights"] = _safe_query(
+            mylocation_dsn,
+            """SELECT id, date, flight_number, dep_airport, dep_airport_name,
+                      arr_airport, arr_airport_name, dep_time, arr_time, duration,
+                      airline, aircraft_type, registration, seat_number,
+                      flight_class, distance_km, source
+               FROM flights
+               WHERE date = %s::date AND is_route = FALSE
+               ORDER BY dep_time NULLS LAST""",
+            (entry_date,),
+        )
+
+        # Also check already-linked flights for this entry
+        cur.execute(
+            "SELECT flight_id, flight_type FROM entry_flight WHERE entry_id = %s",
+            (entry_id,),
+        )
+        linked = {(r[0], r[1]) for r in cur.fetchall()}
+        for f in result["flights"]:
+            f["linked"] = (f["id"], "commercial") in linked
+
+    # Skiing days (same day)
+    if settings.mylocation_db_password:
+        skiing_rows = _safe_query(
+            mylocation_dsn,
+            """SELECT id, date, location, duration_hours, distance_km,
+                      vertical_up_m, vertical_down_m, max_speed_kmh,
+                      max_altitude_m, num_runs, num_lifts, season
+               FROM skiing_days
+               WHERE date = %s::date""",
+            (entry_date,),
+        )
+        # Check which are already linked via activity table
+        cur.execute(
+            "SELECT skiing_day_id FROM activity WHERE entry_id = %s AND skiing_day_id IS NOT NULL",
+            (entry_id,),
+        )
+        linked_skiing = {r[0] for r in cur.fetchall()}
+        for s in skiing_rows:
+            s["linked"] = s["id"] in linked_skiing
+        result["skiing"] = skiing_rows
+
+    # Tautulli watches (same day, movies + episodes only)
+    if settings.tautulli_api_key:
+        try:
+            import httpx
+            from datetime import datetime as dt
+
+            date_str = entry_date.strftime("%Y-%m-%d")
+            resp = httpx.get(
+                f"{settings.tautulli_url}/api/v2",
+                params={
+                    "apikey": settings.tautulli_api_key,
+                    "cmd": "get_history",
+                    "length": 50,
+                    "start_date": date_str,
+                },
+                timeout=10,
+            )
+            resp.raise_for_status()
+            records = resp.json().get("response", {}).get("data", {}).get("data", [])
+
+            watches = []
+            for r in records:
+                media_type = r.get("media_type", "")
+                if media_type not in ("movie", "episode"):
+                    continue
+                watches.append({
+                    "title": r.get("full_title") or r.get("title"),
+                    "media_type": media_type,
+                    "series_title": r.get("grandparent_title"),
+                    "season": r.get("parent_media_index"),
+                    "episode": r.get("media_index"),
+                    "year": r.get("year"),
+                    "reference_id": r.get("reference_id"),
+                    "watched_at": r.get("date"),
+                    "platform": r.get("platform"),
+                    "percent_complete": r.get("percent_complete"),
+                })
+
+            # Check which are already linked
+            cur.execute(
+                "SELECT tautulli_session_key FROM media_watch WHERE entry_id = %s AND tautulli_session_key IS NOT NULL",
+                (entry_id,),
+            )
+            linked_watches = {r[0] for r in cur.fetchall()}
+            for w in watches:
+                w["linked"] = str(w.get("reference_id", "")) in linked_watches
+
+            result["watches"] = watches
+        except Exception:
+            pass
 
     return result
