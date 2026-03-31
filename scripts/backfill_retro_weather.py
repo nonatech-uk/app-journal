@@ -53,12 +53,15 @@ def main():
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-    # Find retrospective entries without weather
+    # Find canonical entries (daily_summary or solo retrospective) without weather.
+    # Skip children — their weather lives on the summary.
     cur.execute("""
         SELECT e.id, e.created_at::date AS d
         FROM entry e
         LEFT JOIN weather w ON w.entry_id = e.id
-        WHERE e.entry_type = 'retrospective' AND w.id IS NULL
+        WHERE e.entry_type IN ('retrospective', 'daily_summary')
+          AND e.parent_entry_id IS NULL
+          AND w.id IS NULL
         ORDER BY e.created_at
     """)
     all_rows = cur.fetchall()

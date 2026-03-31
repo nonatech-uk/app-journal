@@ -76,6 +76,9 @@ class EntrySummary(BaseModel):
     created_at: datetime
     starred: bool = False
     pinned: bool = False
+    entry_type: str = "diary"
+    parent_entry_id: int | None = None
+    child_count: int = 0
     text_preview: str | None = None
     location: LocationOut | None = None
     weather: WeatherOut | None = None
@@ -83,6 +86,16 @@ class EntrySummary(BaseModel):
     tags: list[str] = []
     attachment_count: int = 0
     thumbnail_url: str | None = None
+
+
+class ChildEntrySummary(BaseModel):
+    id: int
+    uuid: str
+    created_at: datetime
+    text_preview: str | None = None
+    mood: int | None = None
+    energy: int | None = None
+    attachment_count: int = 0
 
 
 class EntryDetail(BaseModel):
@@ -107,11 +120,13 @@ class EntryDetail(BaseModel):
     entry_type: str = "diary"
     mood: int | None = None
     energy: int | None = None
+    parent_entry_id: int | None = None
     location: LocationOut | None = None
     weather: WeatherOut | None = None
     music: MusicOut | None = None
     tags: list[str] = []
     attachments: list[AttachmentOut] = []
+    children: list[ChildEntrySummary] = []
 
 
 class EntryList(BaseModel):

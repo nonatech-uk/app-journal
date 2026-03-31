@@ -12,6 +12,7 @@ from config.settings import settings
 from src.api.deps import get_conn, get_current_user, require_admin
 from src.api.models import (
     AttachmentOut,
+    ChildEntrySummary,
     EntryCreate,
     EntryDetail,
     EntryList,
@@ -24,6 +25,43 @@ from src.api.models import (
 )
 
 router = APIRouter()
+
+MONTH_NAMES = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def _create_daily_summary(cur, year: int, month: int, day: int, tz: str | None) -> int:
+    """Create a daily_summary entry for the given date. Returns the new entry ID.
+
+    Uses INSERT ... ON CONFLICT to handle concurrent requests safely.
+    """
+    entry_uuid = str(uuid.uuid4()).upper()
+    title = f"## {day} {MONTH_NAMES[month]} {year}"
+    cur.execute(
+        """INSERT INTO entry (uuid, created_at, modified_at, markdown_text,
+                              entry_type, is_all_day, timezone,
+                              gregorian_year, gregorian_month, gregorian_day)
+           VALUES (%s, make_date(%s, %s, %s)::timestamptz, now(), %s,
+                   'daily_summary', true, %s, %s, %s, %s)
+           ON CONFLICT (gregorian_year, gregorian_month, gregorian_day)
+               WHERE entry_type = 'daily_summary'
+           DO NOTHING
+           RETURNING id""",
+        (entry_uuid, year, month, day, title, tz, year, month, day),
+    )
+    row = cur.fetchone()
+    if row:
+        return row[0]
+    # Concurrent insert won — fetch the existing summary
+    cur.execute(
+        """SELECT id FROM entry
+           WHERE gregorian_year = %s AND gregorian_month = %s AND gregorian_day = %s
+             AND entry_type = 'daily_summary'""",
+        (year, month, day),
+    )
+    return cur.fetchone()[0]
 
 
 def _build_summary(row, conn) -> EntrySummary:
@@ -76,6 +114,9 @@ def _build_summary(row, conn) -> EntrySummary:
         created_at=row[4],
         starred=row[5],
         pinned=row[7],
+        entry_type=row[20] if len(row) > 20 else "diary",
+        parent_entry_id=row[21] if len(row) > 21 else None,
+        child_count=row[22] if len(row) > 22 else 0,
         text_preview=preview,
         location=loc,
         weather=weather,
@@ -96,11 +137,12 @@ def list_entries(
     year: int | None = Query(None),
     month: int | None = Query(None),
     search: str | None = Query(None),
+    entry_type: str | None = Query(None),
     conn=Depends(get_conn),
     _user=Depends(get_current_user),
 ):
     cur = conn.cursor()
-    conditions = []
+    conditions = ["e.entry_type != 'daily_summary'"]
     params: dict = {"limit": limit + 1}
 
     if cursor:
@@ -124,6 +166,11 @@ def list_entries(
     if search:
         conditions.append("e.search_vector @@ plainto_tsquery('english', %(search)s)")
         params["search"] = search
+    if entry_type:
+        # Override the default daily_summary filter when explicitly requested
+        conditions = [c for c in conditions if "daily_summary" not in c]
+        conditions.append("e.entry_type = %(entry_type)s")
+        params["entry_type"] = entry_type
 
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
@@ -133,7 +180,9 @@ def list_entries(
                l.latitude, l.longitude, l.place_name, l.locality,
                l.admin_area, l.country,
                w.temp_celsius, w.conditions, w.weather_code,
-               m.track, m.artist, m.album
+               m.track, m.artist, m.album,
+               e.entry_type, e.parent_entry_id,
+               (SELECT count(*) FROM entry c WHERE c.parent_entry_id = e.id) AS child_count
         FROM entry e
         LEFT JOIN journal j ON j.id = e.journal_id
         LEFT JOIN LATERAL (
@@ -180,7 +229,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
                e.starred, e.pinned, e.is_draft, e.is_all_day, e.duration,
                e.device_name, e.device_model, e.timezone,
                e.retrospective, e.retrospective_at,
-               e.entry_type, e.mood, e.energy
+               e.entry_type, e.mood, e.energy, e.parent_entry_id
         FROM entry e
         LEFT JOIN journal j ON j.id = e.journal_id
         WHERE e.id = %s
@@ -233,6 +282,25 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         except (json.JSONDecodeError, TypeError):
             pass
 
+    # Children (for daily_summary entries)
+    children = []
+    if row[18] == "daily_summary":
+        cur.execute("""
+            SELECT e.id, e.uuid, e.created_at, left(e.markdown_text, 200),
+                   e.mood, e.energy,
+                   (SELECT count(*) FROM attachment a WHERE a.entry_id = e.id)
+            FROM entry e
+            WHERE e.parent_entry_id = %s
+            ORDER BY e.created_at
+        """, (entry_id,))
+        for c in cur.fetchall():
+            text = (c[3] or "").replace("\n", " ").strip() or None
+            children.append(ChildEntrySummary(
+                id=c[0], uuid=c[1], created_at=c[2],
+                text_preview=text, mood=c[4], energy=c[5],
+                attachment_count=c[6],
+            ))
+
     return EntryDetail(
         id=row[0], uuid=row[1], journal_id=row[2], journal_name=row[3],
         created_at=row[4], modified_at=row[5],
@@ -242,8 +310,9 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         device_name=row[13], device_model=row[14], timezone=row[15],
         retrospective=row[16], retrospective_at=row[17],
         entry_type=row[18], mood=row[19], energy=row[20],
+        parent_entry_id=row[21],
         location=loc, weather=weather, music=music,
-        tags=tags, attachments=attachments,
+        tags=tags, attachments=attachments, children=children,
     )
 
 
@@ -357,6 +426,39 @@ def create_entry(
         ),
     )
     entry_id = cur.fetchone()[0]
+
+    # Daily summary: check if this day already has entries
+    cur.execute(
+        """SELECT id FROM entry
+           WHERE gregorian_year = %s AND gregorian_month = %s AND gregorian_day = %s
+             AND entry_type = 'daily_summary'""",
+        (now.year, now.month, now.day),
+    )
+    summary_row = cur.fetchone()
+    if summary_row:
+        # Summary already exists — set parent on new entry
+        cur.execute(
+            "UPDATE entry SET parent_entry_id = %s WHERE id = %s",
+            (summary_row[0], entry_id),
+        )
+    else:
+        # Check for existing diary entries on this day (excluding the one just created)
+        cur.execute(
+            """SELECT id FROM entry
+               WHERE gregorian_year = %s AND gregorian_month = %s AND gregorian_day = %s
+                 AND id != %s AND entry_type != 'daily_summary'""",
+            (now.year, now.month, now.day, entry_id),
+        )
+        siblings = cur.fetchall()
+        if siblings:
+            # Second+ entry for the day — create summary, reparent all
+            summary_id = _create_daily_summary(cur, now.year, now.month, now.day, body.timezone)
+            cur.execute(
+                """UPDATE entry SET parent_entry_id = %s
+                   WHERE gregorian_year = %s AND gregorian_month = %s AND gregorian_day = %s
+                     AND entry_type != 'daily_summary'""",
+                (summary_id, now.year, now.month, now.day),
+            )
 
     # Location
     if body.location:

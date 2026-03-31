@@ -333,3 +333,36 @@ CREATE TABLE IF NOT EXISTS entry_person (
     role        text,                   -- e.g. 'companion', 'host', 'met'
     PRIMARY KEY (entry_id, person_id)
 );
+
+
+-- ============================================================
+-- Phase 2: Daily Summary — parent/child entry hierarchy
+-- ============================================================
+
+-- 2a. parent_entry_id — self-referencing FK for daily_summary → child entries
+ALTER TABLE entry ADD COLUMN IF NOT EXISTS parent_entry_id integer REFERENCES entry(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_entry_parent ON entry (parent_entry_id) WHERE parent_entry_id IS NOT NULL;
+
+-- 2b. Enforce one daily_summary per calendar day
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entry_daily_summary_unique
+    ON entry (gregorian_year, gregorian_month, gregorian_day)
+    WHERE entry_type = 'daily_summary';
+
+-- 2c. View: canonical entry for each day (explicit summary or implicit single-entry)
+CREATE OR REPLACE VIEW daily_summary_v AS
+  SELECT id AS summary_entry_id, gregorian_year, gregorian_month, gregorian_day,
+         'explicit' AS summary_kind
+  FROM entry WHERE entry_type = 'daily_summary'
+  UNION ALL
+  SELECT id AS summary_entry_id, gregorian_year, gregorian_month, gregorian_day,
+         'implicit' AS summary_kind
+  FROM entry
+  WHERE entry_type = 'diary'
+    AND parent_entry_id IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM entry ds
+      WHERE ds.entry_type = 'daily_summary'
+        AND ds.gregorian_year = entry.gregorian_year
+        AND ds.gregorian_month = entry.gregorian_month
+        AND ds.gregorian_day = entry.gregorian_day
+    );
