@@ -21,6 +21,7 @@ from src.api.models import (
     ImmichAttachRequest,
     LocationOut,
     MusicOut,
+    MusicTrackOut,
     WeatherOut,
 )
 
@@ -253,6 +254,22 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
     m_row = cur.fetchone()
     music = MusicOut(track=m_row[0], artist=m_row[1], album=m_row[2], album_year=m_row[3]) if m_row else None
 
+    # All music tracks with enrichment data
+    cur.execute("""
+        SELECT track, artist, album, album_year, played_at, source,
+               recording_mbid::text, artist_mbid::text
+        FROM music WHERE entry_id = %s
+        ORDER BY played_at ASC NULLS LAST, id
+    """, (entry_id,))
+    music_tracks = [
+        MusicTrackOut(
+            track=r[0], artist=r[1], album=r[2], album_year=r[3],
+            played_at=r[4], source=r[5],
+            recording_mbid=r[6], artist_mbid=r[7],
+        )
+        for r in cur.fetchall()
+    ]
+
     # Tags
     cur.execute("SELECT t.name FROM entry_tag et JOIN tag t ON t.id = et.tag_id WHERE et.entry_id = %s", (entry_id,))
     tags = [r[0] for r in cur.fetchall()]
@@ -311,7 +328,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         retrospective=row[16], retrospective_at=row[17],
         entry_type=row[18], mood=row[19], energy=row[20],
         parent_entry_id=row[21],
-        location=loc, weather=weather, music=music,
+        location=loc, weather=weather, music=music, music_tracks=music_tracks,
         tags=tags, attachments=attachments, children=children,
     )
 

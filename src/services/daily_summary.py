@@ -26,6 +26,49 @@ def _safe_query(dsn: str, query: str, params: tuple) -> list[dict]:
         return []
 
 
+def _backfill_mbids(conn, scrobble_dsn: str, entry_id: int) -> int:
+    """Populate recording_mbid and artist_mbid on music rows from the scrobble link table."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, lower(artist) AS artist_lower, lower(track) AS track_lower "
+        "FROM music WHERE entry_id = %s AND recording_mbid IS NULL AND source = 'scrobble'",
+        (entry_id,),
+    )
+    rows_to_update = cur.fetchall()
+    if not rows_to_update:
+        return 0
+
+    pairs = [(r[1], r[2]) for r in rows_to_update]
+    # Build a single query to look up all pairs
+    conditions = " OR ".join(
+        ["(sl.artist_string = %s AND sl.track_string = %s)"] * len(pairs)
+    )
+    params: list = []
+    for a, t in pairs:
+        params.extend([a, t])
+
+    links = _safe_query(
+        scrobble_dsn,
+        f"""SELECT sl.artist_string, sl.track_string,
+                   sl.artist_mbid::text, sl.recording_mbid::text
+            FROM music_scrobble_link sl
+            WHERE sl.recording_mbid IS NOT NULL AND ({conditions})""",
+        tuple(params),
+    )
+
+    link_map = {(r["artist_string"], r["track_string"]): r for r in links}
+    updated = 0
+    for music_id, artist_lower, track_lower in rows_to_update:
+        link = link_map.get((artist_lower, track_lower))
+        if link:
+            cur.execute(
+                "UPDATE music SET recording_mbid = %s, artist_mbid = %s WHERE id = %s",
+                (link["recording_mbid"], link["artist_mbid"], music_id),
+            )
+            updated += cur.rowcount
+    return updated
+
+
 def consolidate_structured_data(conn, summary_id: int, child_ids: list[int]) -> dict:
     """Migrate structured data from child entries to the daily_summary entry.
 
@@ -184,6 +227,9 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
             imported += cur.rowcount
         stats["scrobbles"] = imported
 
+        # Backfill MBIDs from enrichment link table
+        _backfill_mbids(conn, scrobble_dsn, canonical_entry_id)
+
     # Tautulli watches
     if settings.tautulli_api_key:
         try:
@@ -302,7 +348,102 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
                 imported += cur.rowcount
         stats["skiing"] = imported
 
+    # GPS start/end locations
+    if mylocation_dsn:
+        stats["gps_locations"] = _enrich_gps_locations(
+            cur, mylocation_dsn, canonical_entry_id, target_date, day_start, day_end,
+        )
+
     return stats
+
+
+def _place_lookup(mylocation_dsn: str, lat: float, lon: float, dt: date) -> dict:
+    """Look up a covering place from the mylocation DB. Returns location fields dict."""
+    rows = _safe_query(
+        mylocation_dsn,
+        """SELECT p.name, pt.name AS place_type
+           FROM place p
+           JOIN place_type pt ON pt.id = p.place_type_id
+           WHERE ST_DWithin(p.geom,
+                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                 p.distance_m)
+             AND (p.date_from IS NULL OR p.date_from <= %s)
+             AND (p.date_to IS NULL OR p.date_to >= %s)
+           ORDER BY ST_Distance(p.geom,
+                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)
+           LIMIT 1""",
+        (lon, lat, dt, dt, lon, lat),
+    )
+    if rows:
+        return {"place_name": rows[0]["name"], "place_type": rows[0]["place_type"]}
+    # Fall back to Nominatim reverse geocode
+    try:
+        from src.services.location import reverse_geocode
+        return reverse_geocode(lat, lon)
+    except Exception:
+        return {}
+
+
+def _enrich_gps_locations(
+    cur, mylocation_dsn: str, entry_id: int, target_date: date,
+    day_start: datetime, day_end: datetime,
+) -> int:
+    """Insert start/end GPS locations for the day into the location table."""
+    # Check if entry already has a primary location
+    cur.execute(
+        "SELECT id FROM location WHERE entry_id = %s AND location_type = 'primary'",
+        (entry_id,),
+    )
+    if cur.fetchone():
+        return 0  # don't overwrite existing locations
+
+    first = _safe_query(
+        mylocation_dsn,
+        """SELECT lat, lon FROM gps_points
+           WHERE ts >= %s AND ts < %s AND source_type != 'tractive'
+           ORDER BY ts ASC LIMIT 1""",
+        (day_start, day_end),
+    )
+    if not first:
+        return 0
+
+    last = _safe_query(
+        mylocation_dsn,
+        """SELECT lat, lon FROM gps_points
+           WHERE ts >= %s AND ts < %s AND source_type != 'tractive'
+           ORDER BY ts DESC LIMIT 1""",
+        (day_start, day_end),
+    )
+
+    inserted = 0
+    fp = first[0]
+    place = _place_lookup(mylocation_dsn, fp["lat"], fp["lon"], target_date)
+    cur.execute(
+        """INSERT INTO location (entry_id, latitude, longitude, place_name,
+                                 locality, country, location_type, sequence_order)
+           VALUES (%s, %s, %s, %s, %s, %s, 'primary', 0)""",
+        (entry_id, fp["lat"], fp["lon"],
+         place.get("place_name"), place.get("locality"), place.get("country")),
+    )
+    inserted += cur.rowcount
+
+    # End-of-day location (only if different from start)
+    if last:
+        lp = last[0]
+        # Consider same place if within ~100m
+        dist_sq = (fp["lat"] - lp["lat"]) ** 2 + (fp["lon"] - lp["lon"]) ** 2
+        if dist_sq > 0.000001:  # roughly >100m
+            place_end = _place_lookup(mylocation_dsn, lp["lat"], lp["lon"], target_date)
+            cur.execute(
+                """INSERT INTO location (entry_id, latitude, longitude, place_name,
+                                         locality, country, location_type, sequence_order)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'secondary', 1)""",
+                (entry_id, lp["lat"], lp["lon"],
+                 place_end.get("place_name"), place_end.get("locality"), place_end.get("country")),
+            )
+            inserted += cur.rowcount
+
+    return inserted
 
 
 def run_daily_enrichment(conn, settings, target_date: date | None = None) -> dict:
@@ -351,7 +492,46 @@ def run_daily_enrichment(conn, settings, target_date: date | None = None) -> dic
         if row:
             result["enrichment"] = enrich_from_sources(conn, settings, row[0], target_date)
         else:
-            result["skipped"] = "no entries for this date"
+            # No entries — auto-create daily_summary if GPS data exists
+            entry_id = _auto_create_from_gps(cur, settings, target_date)
+            if entry_id:
+                result["auto_created"] = True
+                result["enrichment"] = enrich_from_sources(conn, settings, entry_id, target_date)
+            else:
+                result["skipped"] = "no entries for this date"
 
     conn.commit()
     return result
+
+
+def _auto_create_from_gps(cur, settings, target_date: date) -> int | None:
+    """Create a daily_summary entry if GPS data exists for the date. Returns entry id or None."""
+    if not settings.mylocation_db_password:
+        return None
+
+    mylocation_dsn = settings.cross_dsn(
+        settings.mylocation_db_name, settings.mylocation_db_user, settings.mylocation_db_password,
+    )
+    day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+    day_end = day_start + timedelta(days=1)
+
+    count_rows = _safe_query(
+        mylocation_dsn,
+        "SELECT count(*) AS cnt FROM gps_points WHERE ts >= %s AND ts < %s AND source_type != 'tractive'",
+        (day_start, day_end),
+    )
+    if not count_rows or count_rows[0]["cnt"] == 0:
+        return None
+
+    title = f"## {target_date.day} {target_date.strftime('%B')} {target_date.year}"
+    cur.execute(
+        """INSERT INTO entry (uuid, created_at, gregorian_year, gregorian_month, gregorian_day,
+                              entry_type, is_all_day, markdown_text)
+           VALUES (gen_random_uuid()::text, %s, %s, %s, %s,
+                   'daily_summary', true, %s)
+           RETURNING id""",
+        (day_start, target_date.year, target_date.month, target_date.day, title),
+    )
+    row = cur.fetchone()
+    log.info("Auto-created daily_summary entry %s for %s", row[0], target_date)
+    return row[0]

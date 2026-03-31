@@ -29,6 +29,17 @@ export interface Music {
   album_year?: number | null
 }
 
+export interface MusicTrack {
+  track: string | null
+  artist: string | null
+  album: string | null
+  album_year: number | null
+  played_at: string | null
+  source: string
+  recording_mbid: string | null
+  artist_mbid: string | null
+}
+
 export interface Attachment {
   id: number
   uuid: string | null
@@ -79,6 +90,7 @@ export interface EntryDetail extends EntrySummary {
   entry_type: string
   mood: number | null
   energy: number | null
+  music_tracks: MusicTrack[]
   attachments: Attachment[]
 }
 
@@ -190,6 +202,15 @@ export interface Enrichment {
   scrobbles: { id: number; artist: string; track: string; album: string; listened_at: string; linked: boolean }[]
   transactions: { merchant_name: string; amount: number; currency: string; posted_at: string; category: string }[]
   gps_summary: { city: string; country: string; date: string } | null
+  gps_track: {
+    point_count: number
+    start_place: string | null
+    end_place: string | null
+    start_place_type: string | null
+    end_place_type: string | null
+    track_url: string | null
+    track_svg_url: string | null
+  } | null
   tautulli_watches: { title: string; media_type: string }[]
   flights: EnrichmentFlight[]
   skiing: EnrichmentSkiing[]
@@ -204,6 +225,7 @@ export interface Enrichment {
     watched_at: number | null
     platform: string | null
     percent_complete: number | null
+    rating_key: number | null
     linked: boolean
   }[]
 }

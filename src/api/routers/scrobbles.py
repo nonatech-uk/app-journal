@@ -60,6 +60,10 @@ def import_scrobbles(
         )
         imported += cur.rowcount
 
+    # Backfill MBIDs from enrichment link table
+    from src.services.daily_summary import _backfill_mbids
+    _backfill_mbids(conn, scrobble_dsn, entry_id)
+
     conn.commit()
     return {"imported": imported}
 
@@ -113,6 +117,10 @@ def import_all_scrobbles(
             (entry_id, row["track"], row["artist"], row["album"], row["listened_at"], row["id"]),
         )
         imported += cur.rowcount
+
+    # Backfill MBIDs from enrichment link table
+    from src.services.daily_summary import _backfill_mbids
+    _backfill_mbids(conn, scrobble_dsn, entry_id)
 
     conn.commit()
     return {"imported": imported, "total_in_window": len(rows)}

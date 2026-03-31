@@ -526,6 +526,14 @@ def create_retrospective_entry(
             (entry_id, s["track"], s["artist"], s.get("album"), s.get("listened_at"), s["id"]),
         )
 
+    # 7b. Backfill MBIDs from enrichment link table
+    if settings.scrobble_db_password and day_data.scrobbles:
+        from src.services.daily_summary import _backfill_mbids
+        scrobble_dsn = settings.cross_dsn(
+            settings.scrobble_db_name, settings.scrobble_db_user, settings.scrobble_db_password
+        )
+        _backfill_mbids(conn, scrobble_dsn, entry_id)
+
     # 8. Link watches
     for w in day_data.watches:
         session_key = str(w.get("reference_id", "")) if w.get("reference_id") else None

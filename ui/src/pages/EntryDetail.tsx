@@ -558,7 +558,35 @@ export default function EntryDetail() {
           )}
 
           {/* Music */}
-          {entry.music && (
+          {entry.music_tracks && entry.music_tracks.length > 0 ? (
+            <div className="bg-bg-card border border-border rounded-lg p-3">
+              <h4 className="text-xs font-medium text-text-secondary mb-1">
+                Music ({entry.music_tracks.length})
+              </h4>
+              <div className="space-y-1.5 max-h-60 overflow-auto">
+                {entry.music_tracks.map((t, i) => (
+                  <div key={i} className="text-xs">
+                    <div className="flex items-center gap-1">
+                      {t.recording_mbid && (
+                        <a href={`https://musicbrainz.org/recording/${t.recording_mbid}`}
+                           target="_blank" rel="noopener noreferrer"
+                           className="text-accent hover:underline">{t.track}</a>
+                      )}
+                      {!t.recording_mbid && <span className="text-text-primary">{t.track}</span>}
+                    </div>
+                    <div className="text-text-secondary">
+                      {t.artist_mbid ? (
+                        <a href={`https://musicbrainz.org/artist/${t.artist_mbid}`}
+                           target="_blank" rel="noopener noreferrer"
+                           className="hover:text-accent hover:underline">{t.artist}</a>
+                      ) : t.artist}
+                      {t.album && ` — ${t.album}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : entry.music && (
             <div className="bg-bg-card border border-border rounded-lg p-3">
               <h4 className="text-xs font-medium text-text-secondary mb-1">Playing</h4>
               <div className="text-sm">{entry.music.track}</div>
@@ -566,20 +594,21 @@ export default function EntryDetail() {
             </div>
           )}
 
-          {/* Enrichment — Scrobbles */}
-          {enrichment?.scrobbles && enrichment.scrobbles.length > 0 && (
+          {/* Enrichment — Scrobbles (only show if there are unlinked ones to import) */}
+          {enrichment?.scrobbles && enrichment.scrobbles.some(s => !s.linked) && (
             <div className="bg-bg-card border border-border rounded-lg p-3">
               <div className="flex items-center justify-between mb-1">
                 <h4 className="text-xs font-medium text-text-secondary">
-                  Scrobbles ({enrichment.scrobbles.length})
+                  Unlinked Scrobbles ({enrichment.scrobbles.filter(s => !s.linked).length})
                 </h4>
-                {user?.role === 'admin' && enrichment.scrobbles.some(s => !s.linked) && (
+                {user?.role === 'admin' && (
                   <button
                     className="text-xs px-1.5 py-0.5 rounded bg-bg-secondary text-text-secondary hover:bg-accent/10 hover:text-accent"
                     onClick={async () => {
                       if (!entryId) return
                       await importAllScrobbles(entryId)
                       queryClient.invalidateQueries({ queryKey: ['enrichment', entryId] })
+                      queryClient.invalidateQueries({ queryKey: ['entry', entryId] })
                     }}
                   >
                     Import All
@@ -587,9 +616,8 @@ export default function EntryDetail() {
                 )}
               </div>
               <div className="space-y-1 max-h-40 overflow-auto">
-                {enrichment.scrobbles.map((s) => (
+                {enrichment.scrobbles.filter(s => !s.linked).map((s) => (
                   <div key={s.id} className="text-xs flex items-center gap-1">
-                    {s.linked && <span className="text-accent text-[10px]">✓</span>}
                     <span className="text-text-primary">{s.track}</span>
                     <span className="text-text-secondary"> — {s.artist}</span>
                   </div>
@@ -623,7 +651,15 @@ export default function EntryDetail() {
                   <div key={i} className="text-xs flex items-center gap-1">
                     {w.linked && <span className="text-accent text-[10px]">✓</span>}
                     <span className="text-text-secondary">{w.media_type === 'movie' ? '🎬' : '📺'}</span>
-                    <span className="text-text-primary">{w.title}</span>
+                    {w.rating_key ? (
+                      <a href={`https://plex.mees.st/web/index.html#!/server/9e1fdd8bbe89e8e8266de847db0b0ee2d0137c5c/details?key=${encodeURIComponent('/library/metadata/' + w.rating_key)}`}
+                         target="_blank" rel="noopener noreferrer"
+                         className="text-text-primary hover:text-accent hover:underline">
+                        {w.title}
+                      </a>
+                    ) : (
+                      <span className="text-text-primary">{w.title}</span>
+                    )}
                     {w.year && <span className="text-text-secondary">({w.year})</span>}
                     {w.percent_complete != null && w.percent_complete < 90 && (
                       <span className="text-text-secondary">{w.percent_complete}%</span>
@@ -653,13 +689,34 @@ export default function EntryDetail() {
             </div>
           )}
 
-          {/* Enrichment — GPS */}
-          {enrichment?.gps_summary && (
+          {/* Enrichment — GPS Track */}
+          {enrichment?.gps_track && enrichment.gps_track.point_count > 0 && (
             <div className="bg-bg-card border border-border rounded-lg p-3">
-              <h4 className="text-xs font-medium text-text-secondary mb-1">GPS Location</h4>
-              <div className="text-sm">
-                {enrichment.gps_summary.city}, {enrichment.gps_summary.country}
+              <h4 className="text-xs font-medium text-text-secondary mb-1">GPS Track</h4>
+              {(enrichment.gps_track.start_place || enrichment.gps_track.end_place) && (
+                <div className="text-sm mb-2">
+                  {enrichment.gps_track.start_place ?? 'Unknown'}
+                  {enrichment.gps_track.start_place !== enrichment.gps_track.end_place && (
+                    <>
+                      <span className="text-text-secondary"> → </span>
+                      <span>{enrichment.gps_track.end_place ?? 'Unknown'}</span>
+                    </>
+                  )}
+                </div>
+              )}
+              <div className="text-xs text-text-secondary mb-2">
+                {enrichment.gps_track.point_count.toLocaleString()} GPS points
               </div>
+              {enrichment.gps_track.track_svg_url && enrichment.gps_track.track_url && (
+                <a href={enrichment.gps_track.track_url} target="_blank" rel="noopener noreferrer">
+                  <img
+                    src={enrichment.gps_track.track_svg_url}
+                    alt="GPS track for the day"
+                    className="w-full rounded border border-border hover:border-accent/50 transition-colors"
+                    loading="lazy"
+                  />
+                </a>
+              )}
             </div>
           )}
 

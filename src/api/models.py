@@ -43,6 +43,17 @@ class WeatherOut(BaseModel):
     sunset: datetime | None = None
 
 
+class MusicTrackOut(BaseModel):
+    track: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    album_year: int | None = None
+    played_at: datetime | None = None
+    source: str = "dayone"
+    recording_mbid: str | None = None
+    artist_mbid: str | None = None
+
+
 class MusicOut(BaseModel):
     track: str | None = None
     artist: str | None = None
@@ -124,6 +135,7 @@ class EntryDetail(BaseModel):
     location: LocationOut | None = None
     weather: WeatherOut | None = None
     music: MusicOut | None = None
+    music_tracks: list[MusicTrackOut] = []
     tags: list[str] = []
     attachments: list[AttachmentOut] = []
     children: list[ChildEntrySummary] = []

@@ -217,6 +217,12 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_music_scrobble_unique
     ON music (entry_id, scrobble_db_id) WHERE scrobble_db_id IS NOT NULL;
 
+-- 1c-ii. music metadata enrichment columns — cross-DB FKs to scrobble.music_artist / music_recording
+ALTER TABLE music ADD COLUMN IF NOT EXISTS recording_mbid uuid;
+ALTER TABLE music ADD COLUMN IF NOT EXISTS artist_mbid uuid;
+CREATE INDEX IF NOT EXISTS idx_music_recording_mbid ON music (recording_mbid) WHERE recording_mbid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_music_artist_mbid ON music (artist_mbid) WHERE artist_mbid IS NOT NULL;
+
 -- 1d. media_watch — Plex/Tautulli watch history linked to entries
 CREATE TABLE IF NOT EXISTS media_watch (
     id                  serial PRIMARY KEY,
