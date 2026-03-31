@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config.settings import settings
 from src.api.deps import close_pool, init_pool
-from src.api.routers import auth, calendar, enrichment, entries, journals, map, media, search, stats, tags
+from src.api.routers import activities, auth, calendar, context, enrichment, entries, flights, immich, journals, map, media, people, scrobbles, search, stats, tags, trips, watches
 
 STATIC_DIR = Path(_project_root) / "static"
 
@@ -53,6 +53,14 @@ app.include_router(map.router, prefix="/api/v1", tags=["map"])
 app.include_router(media.router, prefix="/api/v1", tags=["media"])
 app.include_router(stats.router, prefix="/api/v1", tags=["stats"])
 app.include_router(enrichment.router, prefix="/api/v1", tags=["enrichment"])
+app.include_router(context.router, prefix="/api/v1", tags=["context"])
+app.include_router(flights.router, prefix="/api/v1", tags=["flights"])
+app.include_router(activities.router, prefix="/api/v1", tags=["activities"])
+app.include_router(scrobbles.router, prefix="/api/v1", tags=["scrobbles"])
+app.include_router(people.router, prefix="/api/v1", tags=["people"])
+app.include_router(trips.router, prefix="/api/v1", tags=["trips"])
+app.include_router(watches.router, prefix="/api/v1", tags=["watches"])
+app.include_router(immich.router, prefix="/api/v1", tags=["immich"])
 
 
 @app.get("/health")

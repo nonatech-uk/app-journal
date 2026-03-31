@@ -64,6 +64,8 @@ class AttachmentOut(BaseModel):
     camera_model: str | None = None
     date: datetime | None = None
     media_url: str | None = None
+    immich_asset_id: str | None = None
+    immich_url: str | None = None
 
 
 class EntrySummary(BaseModel):
@@ -100,6 +102,11 @@ class EntryDetail(BaseModel):
     device_name: str | None = None
     device_model: str | None = None
     timezone: str | None = None
+    retrospective: str | None = None
+    retrospective_at: datetime | None = None
+    entry_type: str = "diary"
+    mood: int | None = None
+    energy: int | None = None
     location: LocationOut | None = None
     weather: WeatherOut | None = None
     music: MusicOut | None = None
@@ -152,6 +159,60 @@ class StatsOut(BaseModel):
     entries_by_year: dict[int, int] = {}
     top_tags: list[TagOut] = []
     top_locations: list[dict] = []
+
+
+class EntryUpdate(BaseModel):
+    markdown_text: str | None = None
+    tags: list[str] | None = None
+    retrospective: str | None = None
+    mood: int | None = None       # 1-5, 0 to clear
+    energy: int | None = None     # 1-5, 0 to clear
+
+
+class LocationCreate(BaseModel):
+    latitude: float
+    longitude: float
+    altitude: float | None = None
+    place_name: str | None = None
+    address: str | None = None
+    locality: str | None = None
+    admin_area: str | None = None
+    country: str | None = None
+
+
+class WeatherCreate(BaseModel):
+    temp_celsius: float | None = None
+    conditions: str | None = None
+    weather_code: str | None = None
+    relative_humidity: float | None = None
+    wind_speed_kph: float | None = None
+    wind_bearing: float | None = None
+    pressure_mb: float | None = None
+    visibility_km: float | None = None
+
+
+class MusicCreate(BaseModel):
+    track: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    album_year: int | None = None
+
+
+class EntryCreate(BaseModel):
+    markdown_text: str = ""
+    journal_id: int | None = None
+    tags: list[str] = []
+    starred: bool = False
+    timezone: str | None = None
+    retrospective: str | None = None
+    location: LocationCreate | None = None
+    weather: WeatherCreate | None = None
+    music: MusicCreate | None = None
+    immich_asset_ids: list[str] = []
+
+
+class ImmichAttachRequest(BaseModel):
+    immich_asset_ids: list[str]
 
 
 class UserOut(BaseModel):

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 
 const NAV_ITEMS = [
@@ -6,16 +6,26 @@ const NAV_ITEMS = [
   { to: '/calendar', label: 'Calendar', icon: '◰' },
   { to: '/search', label: 'Search', icon: '⊙' },
   { to: '/map', label: 'Map', icon: '◈' },
+  { to: '/trips', label: 'Trips', icon: '◇' },
   { to: '/stats', label: 'Stats', icon: '⊞' },
 ]
 
 export default function Sidebar() {
   const { data: user } = useAuth()
+  const navigate = useNavigate()
 
   return (
     <aside className="w-52 bg-bg-secondary border-r border-border flex flex-col shrink-0">
       <div className="p-4 border-b border-border">
         <h1 className="text-lg font-bold text-accent">Journal</h1>
+      </div>
+      <div className="p-2">
+        <button
+          onClick={() => navigate('/new')}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-colors"
+        >
+          + New Entry
+        </button>
       </div>
       <nav className="flex-1 p-2 space-y-1">
         {NAV_ITEMS.map(({ to, label, icon }) => (

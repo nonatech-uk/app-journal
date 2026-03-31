@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useEntries } from '../hooks/useEntries'
 import EntryCard from '../components/common/EntryCard'
 import { useQuery } from '@tanstack/react-query'
@@ -6,12 +7,16 @@ import { fetchJournals, fetchOnThisDay } from '../api/meta'
 import type { OnThisDayEntry } from '../api/types'
 
 export default function Timeline() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const yearParam = searchParams.get('year') ? Number(searchParams.get('year')) : null
+  const monthParam = searchParams.get('month') ? Number(searchParams.get('month')) : null
+
   const [journalId, setJournalId] = useState<number | null>(null)
   const [_tag] = useState<string | null>(null)
   const [starred, setStarred] = useState<boolean | null>(null)
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
-    useEntries({ journal_id: journalId, tag: _tag, starred })
+    useEntries({ journal_id: journalId, tag: _tag, starred, year: yearParam, month: monthParam })
 
   const { data: journals } = useQuery({ queryKey: ['journals'], queryFn: fetchJournals })
   const { data: onThisDay } = useQuery({ queryKey: ['on-this-day'], queryFn: () => fetchOnThisDay() })
@@ -35,7 +40,20 @@ export default function Timeline() {
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-xl font-bold">Timeline</h2>
+          <h2 className="text-xl font-bold">
+            Timeline
+            {yearParam && (
+              <span className="text-base font-normal text-text-secondary ml-2">
+                {monthParam ? new Date(yearParam, monthParam - 1).toLocaleDateString('en-GB', { month: 'long' }) + ' ' : ''}{yearParam}
+                <button
+                  onClick={() => setSearchParams({})}
+                  className="ml-2 text-xs text-accent hover:underline"
+                >
+                  clear
+                </button>
+              </span>
+            )}
+          </h2>
           {total !== null && total !== undefined && (
             <span className="text-sm text-text-secondary">{total.toLocaleString()} entries</span>
           )}

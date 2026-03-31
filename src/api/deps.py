@@ -66,3 +66,9 @@ def get_current_user(request: Request, conn=Depends(get_conn)) -> CurrentUser:
         display_name=display_name_header or row[1],
         role=row[2],
     )
+
+
+def require_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if user.role != "admin":
+        raise HTTPException(403, "Admin access required")
+    return user

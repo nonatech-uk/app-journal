@@ -256,19 +256,29 @@ def import_dayone(sqlite_path: str, pg_dsn: str, media_src: str, media_dest: str
         identifier = r["ZIDENTIFIER"] or ""
 
         # Determine source file path
-        type_dirs = {
+        # Source dirs match DayOne archive structure
+        src_type_dirs = {
             "jpeg": "DayOnePhotos",
             "png": "DayOnePhotos",
             "mov": "DayOneVideos",
             "mp4": "DayOneVideos",
             "pdf": "DayOnePDFAttachments",
         }
-        src_dir = type_dirs.get(att_type, "DayOnePhotos")
+        # Dest dirs used in local_path (stored in DB)
+        dest_type_dirs = {
+            "jpeg": "photos",
+            "png": "photos",
+            "mov": "videos",
+            "mp4": "videos",
+            "pdf": "pdfs",
+        }
+        src_dir = src_type_dirs.get(att_type, "DayOnePhotos")
+        dest_dir = dest_type_dirs.get(att_type, "photos")
         ext = att_type if att_type != "jpeg" else "jpeg"
         src_file = media_src_path / src_dir / f"{identifier.lower()}.{ext}"
 
         # Destination: type_dir/identifier.ext
-        local_path = f"{src_dir}/{identifier.lower()}.{ext}"
+        local_path = f"{dest_dir}/{identifier.lower()}.{ext}"
         dest_file = media_dest_path / local_path
 
         # Copy file if it exists

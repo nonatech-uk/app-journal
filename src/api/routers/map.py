@@ -32,7 +32,11 @@ def map_entries(
                l.latitude, l.longitude, l.place_name,
                (SELECT MIN(a.id) FROM attachment a WHERE a.entry_id = e.id AND a.type IN ('jpeg','png')) as thumb_att_id
         FROM entry e
-        JOIN location l ON l.entry_id = e.id
+        JOIN LATERAL (
+            SELECT * FROM location WHERE entry_id = e.id
+            ORDER BY CASE WHEN location_type = 'primary' THEN 0 ELSE 1 END, sequence_order
+            LIMIT 1
+        ) l ON true
         {where}
         ORDER BY e.created_at DESC
         LIMIT %(limit)s

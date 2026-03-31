@@ -3,3 +3,6 @@ uvicorn[standard]>=0.34
 psycopg2-binary>=2.9
 pydantic-settings>=2.7
 httpx>=0.28
+Pillow>=11.0
+openai>=1.0
+python-multipart>=0.0.9

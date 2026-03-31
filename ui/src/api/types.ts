@@ -43,6 +43,8 @@ export interface Attachment {
   camera_model: string | null
   date: string | null
   media_url: string | null
+  immich_asset_id: string | null
+  immich_url: string | null
 }
 
 export interface EntrySummary {
@@ -72,6 +74,11 @@ export interface EntryDetail extends EntrySummary {
   device_name: string | null
   device_model: string | null
   timezone: string | null
+  retrospective: string | null
+  retrospective_at: string | null
+  entry_type: string
+  mood: number | null
+  energy: number | null
   attachments: Attachment[]
 }
 
@@ -142,9 +149,144 @@ export interface User {
   role: string
 }
 
+export interface EnrichmentFlight {
+  id: number
+  date: string
+  flight_number: string | null
+  dep_airport: string
+  dep_airport_name: string | null
+  arr_airport: string
+  arr_airport_name: string | null
+  dep_time: string | null
+  arr_time: string | null
+  duration: string | null
+  airline: string | null
+  aircraft_type: string | null
+  registration: string | null
+  seat_number: string | null
+  flight_class: number | null
+  distance_km: number | null
+  source: string | null
+  linked: boolean
+}
+
+export interface EnrichmentSkiing {
+  id: number
+  date: string
+  location: string | null
+  duration_hours: number | null
+  distance_km: number | null
+  vertical_up_m: number | null
+  vertical_down_m: number | null
+  max_speed_kmh: number | null
+  max_altitude_m: number | null
+  num_runs: number | null
+  num_lifts: number | null
+  season: string | null
+  linked: boolean
+}
+
 export interface Enrichment {
-  scrobbles: { artist: string; track: string; album: string; scrobbled_at: string }[]
+  scrobbles: { id: number; artist: string; track: string; album: string; listened_at: string; linked: boolean }[]
   transactions: { merchant_name: string; amount: number; currency: string; posted_at: string; category: string }[]
   gps_summary: { city: string; country: string; date: string } | null
   tautulli_watches: { title: string; media_type: string }[]
+  flights: EnrichmentFlight[]
+  skiing: EnrichmentSkiing[]
+  watches: {
+    title: string
+    media_type: string
+    series_title: string | null
+    season: number | null
+    episode: number | null
+    year: number | null
+    reference_id: number | string | null
+    watched_at: number | null
+    platform: string | null
+    percent_complete: number | null
+    linked: boolean
+  }[]
+}
+
+export interface ContextLocation {
+  latitude: number
+  longitude: number
+  timestamp: string
+  place_name: string | null
+  locality: string | null
+  admin_area: string | null
+  country: string | null
+}
+
+export interface ContextWeather {
+  temp_celsius: number | null
+  conditions: string | null
+  weather_code: string | null
+  relative_humidity: number | null
+  wind_speed_kph: number | null
+  wind_bearing: number | null
+  pressure_mb: number | null
+}
+
+export interface ContextScrobble {
+  artist: string
+  track: string
+  album: string | null
+  listened_at: string
+}
+
+export interface ContextWatch {
+  title: string
+  media_type: string
+  year: number | null
+  watched_at: number | null
+}
+
+export interface EntryContext {
+  location: ContextLocation | null
+  weather: ContextWeather | null
+  scrobbles: ContextScrobble[]
+  tautulli_watches: ContextWatch[]
+  timestamp: string
+}
+
+export interface ImmichAsset {
+  id: string
+  type: string
+  original_filename: string | null
+  created_at: string | null
+  thumbnail_url: string
+}
+
+export interface EntryCreatePayload {
+  markdown_text: string
+  journal_id?: number | null
+  tags: string[]
+  starred: boolean
+  timezone?: string | null
+  location?: {
+    latitude: number
+    longitude: number
+    altitude?: number | null
+    place_name?: string | null
+    address?: string | null
+    locality?: string | null
+    admin_area?: string | null
+    country?: string | null
+  } | null
+  weather?: {
+    temp_celsius?: number | null
+    conditions?: string | null
+    weather_code?: string | null
+    relative_humidity?: number | null
+    wind_speed_kph?: number | null
+    wind_bearing?: number | null
+    pressure_mb?: number | null
+  } | null
+  music?: {
+    track?: string | null
+    artist?: string | null
+    album?: string | null
+  } | null
+  immich_asset_ids: string[]
 }

@@ -37,7 +37,20 @@ export default function EntryCard({ entry }: { entry: EntrySummary }) {
             )}
           </div>
           {entry.text_preview && (
-            <p className="text-sm text-text-primary line-clamp-2 mb-1">{entry.text_preview}</p>
+            <p className="text-sm text-text-primary line-clamp-2 mb-1">
+              {entry.text_preview
+                .replace(/!\[.*$/g, '')
+                .replace(/\\([!\-().#>])/g, '$1')
+                .replace(/^#{1,6}\s+/gm, '')
+                .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+                .replace(/_{1,3}([^_]+)_{1,3}/g, '$1')
+                .replace(/~~([^~]+)~~/g, '$1')
+                .replace(/`([^`]+)`/g, '$1')
+                .replace(/^\s*[-*+]\s+/gm, '')
+                .replace(/^\s*>\s+/gm, '')
+                .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+                .trim()}
+            </p>
           )}
           <div className="flex items-center gap-2 flex-wrap">
             {entry.location?.place_name && (

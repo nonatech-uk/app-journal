@@ -25,13 +25,15 @@ class Settings(BaseSettings):
 
     # External services
     immich_url: str = "http://localhost:2283"
+    immich_public_url: str = "https://pix.mees.st"
     immich_api_key: str = ""
     paperless_url: str = "http://localhost:8000"
     paperless_api_token: str = ""
     tautulli_url: str = "http://localhost:8181"
     tautulli_api_key: str = ""
+    openai_api_key: str = ""
 
-    # Media — path to DayOne media files
+    # Media — path to journal media files
     media_root: str = "/data/journal/media"
 
     # Auth

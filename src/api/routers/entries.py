@@ -1,13 +1,23 @@
 import json
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
-from src.api.deps import get_conn, get_current_user
+from fastapi.responses import Response
+
+from config.settings import settings
+from src.api.deps import get_conn, get_current_user, require_admin
 from src.api.models import (
     AttachmentOut,
+    EntryCreate,
     EntryDetail,
     EntryList,
     EntrySummary,
+    EntryUpdate,
+    ImmichAttachRequest,
     LocationOut,
     MusicOut,
     WeatherOut,
@@ -126,9 +136,17 @@ def list_entries(
                m.track, m.artist, m.album
         FROM entry e
         LEFT JOIN journal j ON j.id = e.journal_id
-        LEFT JOIN location l ON l.entry_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT * FROM location WHERE entry_id = e.id
+            ORDER BY CASE WHEN location_type = 'primary' THEN 0 ELSE 1 END, sequence_order
+            LIMIT 1
+        ) l ON true
         LEFT JOIN weather w ON w.entry_id = e.id
-        LEFT JOIN music m ON m.entry_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT * FROM music WHERE entry_id = e.id
+            ORDER BY CASE WHEN source = 'dayone' THEN 0 ELSE 1 END, played_at DESC NULLS LAST
+            LIMIT 1
+        ) m ON true
         {where}
         ORDER BY e.created_at DESC
         LIMIT %(limit)s
@@ -160,7 +178,9 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         SELECT e.id, e.uuid, e.journal_id, j.name,
                e.created_at, e.modified_at, e.markdown_text, e.rich_text_json,
                e.starred, e.pinned, e.is_draft, e.is_all_day, e.duration,
-               e.device_name, e.device_model, e.timezone
+               e.device_name, e.device_model, e.timezone,
+               e.retrospective, e.retrospective_at,
+               e.entry_type, e.mood, e.energy
         FROM entry e
         LEFT JOIN journal j ON j.id = e.journal_id
         WHERE e.id = %s
@@ -169,8 +189,8 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
     if not row:
         raise HTTPException(404, "Entry not found")
 
-    # Location
-    cur.execute("SELECT latitude, longitude, altitude, place_name, address, locality, admin_area, country FROM location WHERE entry_id = %s", (entry_id,))
+    # Location (primary first)
+    cur.execute("SELECT latitude, longitude, altitude, place_name, address, locality, admin_area, country FROM location WHERE entry_id = %s ORDER BY CASE WHEN location_type = 'primary' THEN 0 ELSE 1 END, sequence_order LIMIT 1", (entry_id,))
     loc_row = cur.fetchone()
     loc = LocationOut(latitude=loc_row[0], longitude=loc_row[1], altitude=loc_row[2], place_name=loc_row[3], address=loc_row[4], locality=loc_row[5], admin_area=loc_row[6], country=loc_row[7]) if loc_row else None
 
@@ -179,8 +199,8 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
     w_row = cur.fetchone()
     weather = WeatherOut(temp_celsius=w_row[0], conditions=w_row[1], weather_code=w_row[2], relative_humidity=w_row[3], wind_speed_kph=w_row[4], pressure_mb=w_row[5], visibility_km=w_row[6], moon_phase=w_row[7], sunrise=w_row[8], sunset=w_row[9]) if w_row else None
 
-    # Music
-    cur.execute("SELECT track, artist, album, album_year FROM music WHERE entry_id = %s", (entry_id,))
+    # Music (Day One entries first, then most recent scrobble)
+    cur.execute("SELECT track, artist, album, album_year FROM music WHERE entry_id = %s ORDER BY CASE WHEN source = 'dayone' THEN 0 ELSE 1 END, played_at DESC NULLS LAST LIMIT 1", (entry_id,))
     m_row = cur.fetchone()
     music = MusicOut(track=m_row[0], artist=m_row[1], album=m_row[2], album_year=m_row[3]) if m_row else None
 
@@ -191,7 +211,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
     # Attachments
     cur.execute("""
         SELECT id, uuid, type, filename, width, height, caption, duration,
-               is_favorite, camera_make, camera_model, date
+               is_favorite, camera_make, camera_model, date, immich_asset_id
         FROM attachment WHERE entry_id = %s ORDER BY order_in_entry, id
     """, (entry_id,))
     attachments = [
@@ -200,6 +220,8 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
             width=a[4], height=a[5], caption=a[6], duration=a[7],
             is_favorite=a[8], camera_make=a[9], camera_model=a[10],
             date=a[11], media_url=f"/api/v1/media/{a[0]}",
+            immich_asset_id=a[12],
+            immich_url=f"{settings.immich_public_url}/photos/{a[12]}" if a[12] else None,
         )
         for a in cur.fetchall()
     ]
@@ -218,6 +240,8 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         starred=row[8], pinned=row[9], is_draft=row[10],
         is_all_day=row[11], duration=row[12],
         device_name=row[13], device_model=row[14], timezone=row[15],
+        retrospective=row[16], retrospective_at=row[17],
+        entry_type=row[18], mood=row[19], energy=row[20],
         location=loc, weather=weather, music=music,
         tags=tags, attachments=attachments,
     )
@@ -232,3 +256,364 @@ def toggle_star(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current
         raise HTTPException(404, "Entry not found")
     conn.commit()
     return {"starred": row[0]}
+
+
+@router.put("/entries/{entry_id}", response_model=EntryDetail)
+def update_entry(
+    entry_id: int,
+    body: EntryUpdate,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    cur = conn.cursor()
+
+    # Check entry exists
+    cur.execute("SELECT id FROM entry WHERE id = %s", (entry_id,))
+    if not cur.fetchone():
+        raise HTTPException(404, "Entry not found")
+
+    if body.markdown_text is not None:
+        cur.execute(
+            """UPDATE entry
+               SET markdown_text = %s,
+                   modified_at = now(),
+                   search_vector = to_tsvector('english', %s)
+               WHERE id = %s""",
+            (body.markdown_text, body.markdown_text, entry_id),
+        )
+
+    if body.retrospective is not None:
+        cur.execute(
+            """UPDATE entry
+               SET retrospective = %s, retrospective_at = now(), modified_at = now()
+               WHERE id = %s""",
+            (body.retrospective, entry_id),
+        )
+
+    if body.mood is not None:
+        cur.execute("UPDATE entry SET mood = %s, modified_at = now() WHERE id = %s", (body.mood if body.mood > 0 else None, entry_id))
+
+    if body.energy is not None:
+        cur.execute("UPDATE entry SET energy = %s, modified_at = now() WHERE id = %s", (body.energy if body.energy > 0 else None, entry_id))
+
+    if body.tags is not None:
+        cur.execute("DELETE FROM entry_tag WHERE entry_id = %s", (entry_id,))
+        for tag_name in body.tags:
+            tag_name = tag_name.strip()
+            if not tag_name:
+                continue
+            cur.execute(
+                "INSERT INTO tag (name) VALUES (%s) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+                (tag_name,),
+            )
+            tag_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO entry_tag (entry_id, tag_id) VALUES (%s, %s)",
+                (entry_id, tag_id),
+            )
+
+    conn.commit()
+    return get_entry(entry_id, conn=conn, _user=_user)
+
+
+@router.delete("/entries/{entry_id}")
+def delete_entry(
+    entry_id: int,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM entry WHERE id = %s RETURNING id", (entry_id,))
+    if not cur.fetchone():
+        raise HTTPException(404, "Entry not found")
+    conn.commit()
+    return Response(status_code=204)
+
+
+@router.post("/entries", response_model=EntryDetail)
+def create_entry(
+    body: EntryCreate,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    cur = conn.cursor()
+    entry_uuid = str(uuid.uuid4()).upper()
+    now = datetime.now(timezone.utc)
+
+    # Insert entry
+    retro_at = now if body.retrospective else None
+    cur.execute(
+        """INSERT INTO entry (uuid, journal_id, created_at, modified_at,
+                              markdown_text, starred, timezone,
+                              retrospective, retrospective_at,
+                              gregorian_year, gregorian_month, gregorian_day)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           RETURNING id""",
+        (
+            entry_uuid, body.journal_id, now, now,
+            body.markdown_text, body.starred, body.timezone,
+            body.retrospective, retro_at,
+            now.year, now.month, now.day,
+        ),
+    )
+    entry_id = cur.fetchone()[0]
+
+    # Location
+    if body.location:
+        loc = body.location
+        cur.execute(
+            """INSERT INTO location (entry_id, latitude, longitude, altitude,
+                                     place_name, address, locality, admin_area, country)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                entry_id, loc.latitude, loc.longitude, loc.altitude,
+                loc.place_name, loc.address, loc.locality, loc.admin_area, loc.country,
+            ),
+        )
+
+    # Weather
+    if body.weather:
+        w = body.weather
+        cur.execute(
+            """INSERT INTO weather (entry_id, temp_celsius, conditions, weather_code,
+                                    relative_humidity, wind_speed_kph, wind_bearing,
+                                    pressure_mb, visibility_km)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                entry_id, w.temp_celsius, w.conditions, w.weather_code,
+                w.relative_humidity, w.wind_speed_kph, w.wind_bearing,
+                w.pressure_mb, w.visibility_km,
+            ),
+        )
+
+    # Music
+    if body.music:
+        m = body.music
+        cur.execute(
+            """INSERT INTO music (entry_id, track, artist, album, album_year)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (entry_id, m.track, m.artist, m.album, m.album_year),
+        )
+
+    # Tags
+    for tag_name in body.tags:
+        tag_name = tag_name.strip()
+        if not tag_name:
+            continue
+        cur.execute(
+            "INSERT INTO tag (name) VALUES (%s) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+            (tag_name,),
+        )
+        tag_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO entry_tag (entry_id, tag_id) VALUES (%s, %s)",
+            (entry_id, tag_id),
+        )
+
+    # Immich assets
+    if body.immich_asset_ids:
+        from src.services.immich import download_asset
+
+        for asset_id in body.immich_asset_ids:
+            meta = download_asset(settings, asset_id, settings.media_root, entry_uuid)
+            if meta:
+                att_uuid = str(uuid.uuid4()).upper()
+                cur.execute(
+                    """INSERT INTO attachment
+                       (entry_id, uuid, type, filename, file_size, width, height,
+                        camera_make, camera_model, lens_model, iso, f_number,
+                        focal_length, date, local_path, immich_asset_id)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        entry_id, att_uuid, meta["type"], meta["filename"],
+                        meta["file_size"], meta["width"], meta["height"],
+                        meta["camera_make"], meta["camera_model"], meta["lens_model"],
+                        meta["iso"], meta["f_number"], meta["focal_length"],
+                        meta["date"], meta["local_path"], meta["immich_asset_id"],
+                    ),
+                )
+
+    conn.commit()
+    return get_entry(entry_id, conn=conn, _user=_user)
+
+
+@router.post("/entries/{entry_id}/voice", response_model=EntryDetail)
+def upload_voice_note(
+    entry_id: int,
+    audio: UploadFile = File(...),
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    """Upload a voice note, transcribe it, and attach to an entry."""
+    cur = conn.cursor()
+    cur.execute("SELECT uuid FROM entry WHERE id = %s", (entry_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    entry_uuid = row[0]
+
+    # Save audio file
+    entry_dir = Path(settings.media_root) / entry_uuid
+    entry_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(audio.filename or "voice.webm").suffix or ".webm"
+    voice_filename = f"voice_{int(datetime.now(timezone.utc).timestamp())}{ext}"
+    voice_path = entry_dir / voice_filename
+    content = audio.file.read()
+    voice_path.write_bytes(content)
+
+    # Transcribe
+    transcription = None
+    if settings.openai_api_key:
+        from src.services.transcription import transcribe_audio
+        transcription = transcribe_audio(str(voice_path), settings.openai_api_key)
+
+    # Insert attachment
+    att_uuid = str(uuid.uuid4()).upper()
+    relative_path = f"{entry_uuid}/{voice_filename}"
+    cur.execute(
+        """INSERT INTO attachment
+           (entry_id, uuid, type, filename, file_size, local_path, transcription)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (
+            entry_id, att_uuid, "audio", voice_filename,
+            len(content), relative_path, transcription,
+        ),
+    )
+
+    # Append transcription to entry text if available
+    if transcription:
+        cur.execute(
+            """UPDATE entry
+               SET markdown_text = COALESCE(markdown_text, '') || %s,
+                   modified_at = now()
+               WHERE id = %s""",
+            (f"\n\n---\n*Voice note:* {transcription}\n", entry_id),
+        )
+
+    conn.commit()
+    return get_entry(entry_id, conn=conn, _user=_user)
+
+
+@router.post("/entries/{entry_id}/attachments/immich", response_model=EntryDetail)
+def attach_immich_photos(
+    entry_id: int,
+    body: ImmichAttachRequest,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    """Download photos from Immich and attach to an existing entry."""
+    cur = conn.cursor()
+    cur.execute("SELECT uuid FROM entry WHERE id = %s", (entry_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    entry_uuid = row[0]
+
+    from src.services.immich import download_asset
+
+    for asset_id in body.immich_asset_ids:
+        meta = download_asset(settings, asset_id, settings.media_root, entry_uuid)
+        if meta:
+            att_uuid = str(uuid.uuid4()).upper()
+            cur.execute(
+                """INSERT INTO attachment
+                   (entry_id, uuid, type, filename, file_size, width, height,
+                    camera_make, camera_model, lens_model, iso, f_number,
+                    focal_length, date, local_path, immich_asset_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    entry_id, att_uuid, meta["type"], meta["filename"],
+                    meta["file_size"], meta["width"], meta["height"],
+                    meta["camera_make"], meta["camera_model"], meta["lens_model"],
+                    meta["iso"], meta["f_number"], meta["focal_length"],
+                    meta["date"], meta["local_path"], meta["immich_asset_id"],
+                ),
+            )
+
+    conn.commit()
+    return get_entry(entry_id, conn=conn, _user=_user)
+
+
+@router.delete("/entries/{entry_id}/attachments/{attachment_id}")
+def delete_attachment(
+    entry_id: int,
+    attachment_id: int,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT local_path FROM attachment WHERE id = %s AND entry_id = %s",
+        (attachment_id, entry_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Attachment not found")
+
+    # Delete file from disk if it exists
+    if row[0]:
+        file_path = Path(settings.media_root) / row[0]
+        if file_path.exists():
+            file_path.unlink()
+
+    cur.execute("DELETE FROM attachment WHERE id = %s", (attachment_id,))
+    conn.commit()
+    return {"deleted": True}
+
+
+@router.post("/entries/{entry_id}/attachments/upload", response_model=EntryDetail)
+def upload_attachment(
+    entry_id: int,
+    file: UploadFile = File(...),
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    cur = conn.cursor()
+    cur.execute("SELECT uuid FROM entry WHERE id = %s", (entry_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    entry_uuid = row[0]
+
+    # Determine type from extension
+    filename = file.filename or "upload"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    type_map = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "png",
+                "mov": "mov", "mp4": "mp4", "pdf": "pdf", "heic": "jpeg", "webp": "png"}
+    media_type = type_map.get(ext, "jpeg")
+
+    # Save file
+    dest_dir = Path(settings.media_root) / entry_uuid
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / filename
+    content = file.file.read()
+    dest_path.write_bytes(content)
+
+    relative_path = f"{entry_uuid}/{filename}"
+    file_size = len(content)
+
+    # Extract dimensions for images
+    width = None
+    height = None
+    if media_type in ("jpeg", "png"):
+        try:
+            from PIL import Image
+            from io import BytesIO
+            img = Image.open(BytesIO(content))
+            width, height = img.size
+        except Exception:
+            pass
+
+    att_uuid = str(uuid.uuid4()).upper()
+    cur.execute(
+        """INSERT INTO attachment
+           (entry_id, uuid, type, filename, file_size, width, height,
+            local_path, order_in_entry)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                   (SELECT COALESCE(MAX(order_in_entry), 0) + 1 FROM attachment WHERE entry_id = %s))""",
+        (entry_id, att_uuid, media_type, filename, file_size, width, height,
+         relative_path, entry_id),
+    )
+    conn.commit()
+    return get_entry(entry_id, conn=conn, _user=_user)

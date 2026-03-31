@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS entry (
     gregorian_year  integer,
     gregorian_month integer,
     gregorian_day   integer,
-    search_vector   tsvector
+    search_vector   tsvector,
+    retrospective   text,
+    retrospective_at timestamptz
 );
 
 CREATE INDEX IF NOT EXISTS idx_entry_created_at ON entry (created_at DESC);
@@ -89,6 +91,10 @@ CREATE TABLE IF NOT EXISTS attachment (
 
 CREATE INDEX IF NOT EXISTS idx_attachment_entry_id ON attachment (entry_id);
 CREATE INDEX IF NOT EXISTS idx_attachment_type ON attachment (type);
+
+-- Immich provenance tracking
+ALTER TABLE attachment ADD COLUMN IF NOT EXISTS immich_asset_id text;
+CREATE INDEX IF NOT EXISTS idx_attachment_immich ON attachment (immich_asset_id) WHERE immich_asset_id IS NOT NULL;
 
 
 CREATE TABLE IF NOT EXISTS location (
@@ -157,3 +163,173 @@ CREATE TABLE IF NOT EXISTS entry_tag (
 );
 
 CREATE INDEX IF NOT EXISTS idx_entry_tag_tag_id ON entry_tag (tag_id);
+
+
+-- ============================================================
+-- Phase 1: Schema extensions for Personal Intelligence Fabric
+-- ============================================================
+
+-- 1a. entry_flight — bridge to mylocation.flights / ga_flights (cross-DB, no enforced FK)
+CREATE TABLE IF NOT EXISTS entry_flight (
+    entry_id    integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    flight_id   integer NOT NULL,
+    flight_type text NOT NULL DEFAULT 'commercial',  -- 'commercial' | 'ga'
+    PRIMARY KEY (entry_id, flight_id, flight_type)
+);
+
+-- 1b. activity — links entries to skiing days and other tracked activities
+CREATE TABLE IF NOT EXISTS activity (
+    id                serial PRIMARY KEY,
+    entry_id          integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    activity_type     text NOT NULL,          -- 'skiing', 'hiking', 'cycling', 'running', etc.
+    title             text,
+    skiing_day_id     integer,                -- references mylocation.skiing_days.id (app-layer)
+    distance_km       float,
+    duration_seconds  integer,
+    elevation_gain    float,
+    elevation_loss    float,
+    max_altitude      float,
+    guide             text,
+    partners          text[],
+    conditions        text,
+    notes             text
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_entry_id ON activity (entry_id);
+CREATE INDEX IF NOT EXISTS idx_activity_type ON activity (activity_type);
+
+-- 1c. music table extensions — multiple tracks per entry, scrobble linkage
+ALTER TABLE music ADD COLUMN IF NOT EXISTS played_at timestamptz;
+ALTER TABLE music ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'dayone';  -- 'dayone' | 'scrobble' | 'manual'
+ALTER TABLE music ADD COLUMN IF NOT EXISTS scrobble_db_id integer;
+ALTER TABLE music ADD COLUMN IF NOT EXISTS play_count integer;
+
+-- Drop the UNIQUE constraint on music.entry_id to allow multiple tracks per entry.
+-- The constraint name is "music_entry_id_key" (PostgreSQL auto-generated).
+-- We wrap in DO block so it's idempotent.
+DO $$
+BEGIN
+    ALTER TABLE music DROP CONSTRAINT IF EXISTS music_entry_id_key;
+EXCEPTION WHEN undefined_object THEN
+    NULL;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_music_scrobble_unique
+    ON music (entry_id, scrobble_db_id) WHERE scrobble_db_id IS NOT NULL;
+
+-- 1d. media_watch — Plex/Tautulli watch history linked to entries
+CREATE TABLE IF NOT EXISTS media_watch (
+    id                  serial PRIMARY KEY,
+    entry_id            integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    title               text NOT NULL,
+    media_type          text NOT NULL,        -- 'movie' | 'episode' | 'track'
+    series_title        text,
+    season              integer,
+    episode             integer,
+    platform            text DEFAULT 'plex',
+    rating              float,
+    notes               text,
+    tautulli_session_key text,
+    watched_at          timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_watch_entry_id ON media_watch (entry_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_watch_tautulli_unique
+    ON media_watch (entry_id, tautulli_session_key) WHERE tautulli_session_key IS NOT NULL;
+
+-- 1e. trip schema (ltree hierarchy)
+CREATE EXTENSION IF NOT EXISTS ltree;
+
+CREATE TABLE IF NOT EXISTS trip (
+    id              serial PRIMARY KEY,
+    path            ltree NOT NULL,
+    title           text NOT NULL,
+    description     text,
+    start_date      date,
+    end_date        date,
+    countries       text[],
+    locations       text[],
+    companions      text[],
+    cover_asset_id  text,               -- immich asset ID for cover photo
+    immich_album_id text,               -- link back to source Immich album
+    tags            text[],
+    notes           text,
+    custom_stats    jsonb DEFAULT '{}',
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    modified_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_trip_path ON trip USING gist (path);
+CREATE INDEX IF NOT EXISTS idx_trip_dates ON trip (start_date, end_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_immich_album ON trip (immich_album_id) WHERE immich_album_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS trip_entry (
+    trip_id     integer NOT NULL REFERENCES trip(id) ON DELETE CASCADE,
+    entry_id    integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    day_number  integer,
+    day_label   text,
+    is_travel_day boolean DEFAULT false,
+    is_rest_day   boolean DEFAULT false,
+    PRIMARY KEY (trip_id, entry_id)
+);
+
+CREATE TABLE IF NOT EXISTS trip_highlight (
+    id              serial PRIMARY KEY,
+    trip_id         integer NOT NULL REFERENCES trip(id) ON DELETE CASCADE,
+    entry_id        integer REFERENCES entry(id) ON DELETE SET NULL,
+    title           text NOT NULL,
+    description     text,
+    sequence_order  integer NOT NULL DEFAULT 0,
+    asset_id        text                -- immich asset for the highlight
+);
+
+CREATE INDEX IF NOT EXISTS idx_trip_highlight_trip ON trip_highlight (trip_id);
+
+CREATE TABLE IF NOT EXISTS trip_stat (
+    id       serial PRIMARY KEY,
+    trip_id  integer NOT NULL REFERENCES trip(id) ON DELETE CASCADE,
+    key      text NOT NULL,
+    value    text NOT NULL,
+    unit     text,
+    UNIQUE (trip_id, key)
+);
+
+-- 1f. Entry enhancements
+ALTER TABLE entry ADD COLUMN IF NOT EXISTS entry_type text NOT NULL DEFAULT 'diary';  -- 'diary' | 'retrospective'
+ALTER TABLE entry ADD COLUMN IF NOT EXISTS mood integer;      -- 1-5
+ALTER TABLE entry ADD COLUMN IF NOT EXISTS energy integer;    -- 1-5
+
+-- 1g. Multi-location support
+ALTER TABLE location ADD COLUMN IF NOT EXISTS location_type text NOT NULL DEFAULT 'primary';
+ALTER TABLE location ADD COLUMN IF NOT EXISTS sequence_order integer DEFAULT 0;
+
+-- Drop UNIQUE on location.entry_id to allow multiple locations per entry
+DO $$
+BEGIN
+    ALTER TABLE location DROP CONSTRAINT IF EXISTS location_entry_id_key;
+EXCEPTION WHEN undefined_object THEN
+    NULL;
+END $$;
+
+-- Ensure only one primary location per entry
+CREATE UNIQUE INDEX IF NOT EXISTS idx_location_primary_unique
+    ON location (entry_id) WHERE location_type = 'primary';
+
+-- 1h. person + entry_person
+CREATE TABLE IF NOT EXISTS person (
+    id              serial PRIMARY KEY,
+    name            text NOT NULL,
+    nickname        text,
+    immich_person_id text,
+    notes           text,
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_person_name ON person (name);
+
+CREATE TABLE IF NOT EXISTS entry_person (
+    entry_id    integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    person_id   integer NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+    role        text,                   -- e.g. 'companion', 'host', 'met'
+    PRIMARY KEY (entry_id, person_id)
+);

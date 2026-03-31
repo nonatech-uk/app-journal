@@ -48,9 +48,17 @@ def on_this_day(
                m.track, m.artist, m.album
         FROM entry e
         LEFT JOIN journal j ON j.id = e.journal_id
-        LEFT JOIN location l ON l.entry_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT * FROM location WHERE entry_id = e.id
+            ORDER BY CASE WHEN location_type = 'primary' THEN 0 ELSE 1 END, sequence_order
+            LIMIT 1
+        ) l ON true
         LEFT JOIN weather w ON w.entry_id = e.id
-        LEFT JOIN music m ON m.entry_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT * FROM music WHERE entry_id = e.id
+            ORDER BY CASE WHEN source = 'dayone' THEN 0 ELSE 1 END, played_at DESC NULLS LAST
+            LIMIT 1
+        ) m ON true
         WHERE e.gregorian_month = %s AND e.gregorian_day = %s
         ORDER BY e.created_at DESC
     """, (m, d))
