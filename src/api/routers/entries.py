@@ -270,7 +270,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
     # All music tracks with enrichment data
     cur.execute("""
         SELECT track, artist, album, album_year, played_at, source,
-               recording_mbid::text, artist_mbid::text
+               recording_mbid::text, artist_mbid::text, spotify_track_id
         FROM music WHERE entry_id = %s
         ORDER BY played_at ASC NULLS LAST, id
     """, (entry_id,))
@@ -279,6 +279,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
             track=r[0], artist=r[1], album=r[2], album_year=r[3],
             played_at=r[4], source=r[5],
             recording_mbid=r[6], artist_mbid=r[7],
+            spotify_track_id=r[8],
         )
         for r in cur.fetchall()
     ]

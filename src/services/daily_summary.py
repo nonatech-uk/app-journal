@@ -50,8 +50,10 @@ def _backfill_mbids(conn, scrobble_dsn: str, entry_id: int) -> int:
     links = _safe_query(
         scrobble_dsn,
         f"""SELECT sl.artist_string, sl.track_string,
-                   sl.artist_mbid::text, sl.recording_mbid::text
+                   sl.artist_mbid::text, sl.recording_mbid::text,
+                   mr.spotify_track_id
             FROM music_scrobble_link sl
+            LEFT JOIN music_recording mr ON mr.mbid = sl.recording_mbid
             WHERE sl.recording_mbid IS NOT NULL AND ({conditions})""",
         tuple(params),
     )
@@ -62,8 +64,8 @@ def _backfill_mbids(conn, scrobble_dsn: str, entry_id: int) -> int:
         link = link_map.get((artist_lower, track_lower))
         if link:
             cur.execute(
-                "UPDATE music SET recording_mbid = %s, artist_mbid = %s WHERE id = %s",
-                (link["recording_mbid"], link["artist_mbid"], music_id),
+                "UPDATE music SET recording_mbid = %s, artist_mbid = %s, spotify_track_id = %s WHERE id = %s",
+                (link["recording_mbid"], link["artist_mbid"], link.get("spotify_track_id"), music_id),
             )
             updated += cur.rowcount
     return updated

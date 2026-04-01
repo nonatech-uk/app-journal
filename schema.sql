@@ -227,6 +227,7 @@ ALTER TABLE music ADD COLUMN IF NOT EXISTS recording_mbid uuid;
 ALTER TABLE music ADD COLUMN IF NOT EXISTS artist_mbid uuid;
 CREATE INDEX IF NOT EXISTS idx_music_recording_mbid ON music (recording_mbid) WHERE recording_mbid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_music_artist_mbid ON music (artist_mbid) WHERE artist_mbid IS NOT NULL;
+ALTER TABLE music ADD COLUMN IF NOT EXISTS spotify_track_id text;
 
 -- 1d. media_watch — Plex/Tautulli watch history linked to entries
 CREATE TABLE IF NOT EXISTS media_watch (

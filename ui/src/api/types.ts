@@ -42,6 +42,7 @@ export interface MusicTrack {
   source: string
   recording_mbid: string | null
   artist_mbid: string | null
+  spotify_track_id: string | null
 }
 
 export interface Attachment {

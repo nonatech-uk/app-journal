@@ -56,6 +56,7 @@ class MusicTrackOut(BaseModel):
     source: str = "dayone"
     recording_mbid: str | None = None
     artist_mbid: str | None = None
+    spotify_track_id: str | None = None
 
 
 class MusicOut(BaseModel):
