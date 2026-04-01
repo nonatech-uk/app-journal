@@ -25,6 +25,23 @@ def _safe_query(dsn: str, query: str, params: tuple):
         return []
 
 
+def _nominatim_reverse(lat: float, lon: float) -> str | None:
+    """Reverse geocode via Nominatim, returning the first part of display_name."""
+    try:
+        import httpx
+        resp = httpx.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 16},
+            headers={"User-Agent": "journal-app/1.0 (personal use)"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        name = resp.json().get("display_name", "").split(",")[0].strip()
+        return name or None
+    except Exception:
+        return None
+
+
 @router.get("/entries/{entry_id}/enrichment")
 def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     from config.settings import settings
@@ -89,18 +106,94 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
             (entry_date,),
         )
 
-    # GPS summary (same day)
+    # GPS track (same day) — start/end places + track thumbnail URL
     mylocation_dsn = settings.cross_dsn(settings.mylocation_db_name, settings.mylocation_db_user, settings.mylocation_db_password)
     if settings.mylocation_db_password:
-        gps_rows = _safe_query(
+        gps_track = {"point_count": 0, "start_place": None, "end_place": None,
+                     "start_place_type": None, "end_place_type": None,
+                     "track_url": None, "track_svg_url": None}
+
+        count_rows = _safe_query(
             mylocation_dsn,
-            """SELECT city, country, date, source
-               FROM daily_location
-               WHERE date = %s::date""",
-            (entry_date,),
+            """SELECT count(*) AS cnt FROM gps_points
+               WHERE ts >= %s AND ts < %s AND source_type != 'tractive'""",
+            (day_start, day_end),
         )
-        if gps_rows:
-            result["gps_summary"] = gps_rows[0]
+        point_count = count_rows[0]["cnt"] if count_rows else 0
+        gps_track["point_count"] = point_count
+
+        if point_count > 0:
+            date_str = entry_date.strftime("%Y-%m-%d")
+            base = settings.mylocation_public_url.rstrip("/")
+            gps_track["track_url"] = f"{base}/explorer?date={date_str}"
+            gps_track["track_svg_url"] = f"{base}/api/v1/gps/track-svg?date={date_str}"
+
+            # Start-of-day place
+            first = _safe_query(
+                mylocation_dsn,
+                """SELECT lat, lon FROM gps_points
+                   WHERE ts >= %s AND ts < %s AND source_type != 'tractive'
+                   ORDER BY ts ASC LIMIT 1""",
+                (day_start, day_end),
+            )
+            if first:
+                fp = first[0]
+                place = _safe_query(
+                    mylocation_dsn,
+                    """SELECT p.name, pt.name AS place_type
+                       FROM place p JOIN place_type pt ON pt.id = p.place_type_id
+                       WHERE ST_DWithin(p.geom,
+                             ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                             p.distance_m)
+                         AND (p.date_from IS NULL OR p.date_from <= %s)
+                         AND (p.date_to IS NULL OR p.date_to >= %s)
+                       ORDER BY ST_Distance(p.geom,
+                             ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)
+                       LIMIT 1""",
+                    (fp["lon"], fp["lat"], entry_date, entry_date, fp["lon"], fp["lat"]),
+                )
+                if place:
+                    gps_track["start_place"] = place[0]["name"]
+                    gps_track["start_place_type"] = place[0]["place_type"]
+                else:
+                    geo = _nominatim_reverse(fp["lat"], fp["lon"])
+                    if geo:
+                        gps_track["start_place"] = geo
+
+            # End-of-day place
+            last = _safe_query(
+                mylocation_dsn,
+                """SELECT lat, lon FROM gps_points
+                   WHERE ts >= %s AND ts < %s AND source_type != 'tractive'
+                   ORDER BY ts DESC LIMIT 1""",
+                (day_start, day_end),
+            )
+            if last:
+                lp = last[0]
+                place = _safe_query(
+                    mylocation_dsn,
+                    """SELECT p.name, pt.name AS place_type
+                       FROM place p JOIN place_type pt ON pt.id = p.place_type_id
+                       WHERE ST_DWithin(p.geom,
+                             ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                             p.distance_m)
+                         AND (p.date_from IS NULL OR p.date_from <= %s)
+                         AND (p.date_to IS NULL OR p.date_to >= %s)
+                       ORDER BY ST_Distance(p.geom,
+                             ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)
+                       LIMIT 1""",
+                    (lp["lon"], lp["lat"], entry_date, entry_date, lp["lon"], lp["lat"]),
+                )
+                if place:
+                    gps_track["end_place"] = place[0]["name"]
+                    gps_track["end_place_type"] = place[0]["place_type"]
+                else:
+                    geo = _nominatim_reverse(lp["lat"], lp["lon"])
+                    if geo:
+                        gps_track["end_place"] = geo
+
+        result["gps_track"] = gps_track
+        result["gps_summary"] = None  # deprecated, kept for backward compat
 
     # Flights (same day, exclude route records)
     if settings.mylocation_db_password:
@@ -182,6 +275,7 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
                     "watched_at": r.get("date"),
                     "platform": r.get("platform"),
                     "percent_complete": r.get("percent_complete"),
+                    "rating_key": r.get("rating_key"),
                 })
 
             # Check which are already linked

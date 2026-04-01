@@ -20,8 +20,33 @@ export default function EntryDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const entryId = id ? Number(id) : undefined
-  const { data: entry, isLoading } = useEntry(entryId)
+  const { data: entry, isLoading, refetch: refetchEntry } = useEntry(entryId)
   const { data: enrichment } = useEnrichment(entryId)
+
+  // Refetch entry when returning from another tab (e.g. places editor)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && entryId) {
+        refetchEntry()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [entryId, refetchEntry])
+
+  // Keyboard navigation: left/right arrow for prev/next entry
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      if (e.key === 'ArrowLeft' && entry?.prev_entry_id) {
+        navigate(`/entry/${entry.prev_entry_id}`)
+      } else if (e.key === 'ArrowRight' && entry?.next_entry_id) {
+        navigate(`/entry/${entry.next_entry_id}`)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [entry?.prev_entry_id, entry?.next_entry_id, navigate])
   const { data: user } = useAuth()
   const queryClient = useQueryClient()
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
@@ -120,7 +145,23 @@ export default function EntryDetail() {
       {/* Header */}
       <div className="mb-4">
         <div className="flex items-center gap-3 mb-1">
+          <button
+            onClick={() => entry.prev_entry_id && navigate(`/entry/${entry.prev_entry_id}`)}
+            disabled={!entry.prev_entry_id}
+            className="text-text-secondary hover:text-accent disabled:opacity-20 disabled:cursor-default transition-colors text-sm"
+            title="Previous entry"
+          >
+            ←
+          </button>
           <span className="text-sm text-text-secondary">{formatDate(entry.created_at)}</span>
+          <button
+            onClick={() => entry.next_entry_id && navigate(`/entry/${entry.next_entry_id}`)}
+            disabled={!entry.next_entry_id}
+            className="text-text-secondary hover:text-accent disabled:opacity-20 disabled:cursor-default transition-colors text-sm"
+            title="Next entry"
+          >
+            →
+          </button>
           {entry.journal_name && (
             <span className="text-xs px-2 py-0.5 rounded bg-accent/10 text-accent">{entry.journal_name}</span>
           )}
@@ -525,37 +566,96 @@ export default function EntryDetail() {
             )}
           </div>
 
-          {/* Location */}
-          {entry.location && (
-            <div className="bg-bg-card border border-border rounded-lg p-3">
-              <h4 className="text-xs font-medium text-text-secondary mb-1">Location</h4>
-              <div className="text-sm">{entry.location.place_name}</div>
-              {entry.location.locality && (
-                <div className="text-xs text-text-secondary">
-                  {entry.location.locality}
-                  {entry.location.admin_area ? `, ${entry.location.admin_area}` : ''}
-                  {entry.location.country ? `, ${entry.location.country}` : ''}
+          {/* Location(s) + Weather */}
+          {(entry.locations?.length > 0 || entry.location) && (() => {
+            const locs = entry.locations?.length > 0 ? entry.locations : entry.location ? [entry.location] : []
+            if (locs.length === 0) return null
+            const multi = locs.length > 1
+            const labels = multi ? ['Start', 'End'] : [null]
+            const placesUrl = (loc: typeof locs[0]) =>
+              loc.latitude != null && loc.longitude != null
+                ? `https://locations.mees.st/places?lat=${loc.latitude}&lon=${loc.longitude}&name=${encodeURIComponent(loc.place_name || '')}&dt=${entry.created_at?.slice(0, 10) || ''}`
+                : null
+            const displayName = (loc: typeof locs[0]) =>
+              loc.place_label ? `${loc.place_label} (${loc.place_name})` : loc.place_name
+            return (
+              <div className="bg-bg-card border border-border rounded-lg p-3">
+                <h4 className="text-xs font-medium text-text-secondary mb-1">
+                  {multi ? 'Locations' : 'Location'}
+                </h4>
+                <div className="space-y-1.5">
+                  {locs.map((loc, i) => {
+                    const url = placesUrl(loc)
+                    return (
+                      <div key={i}>
+                        <div className="text-sm">
+                          {labels[i] && <span className="text-text-secondary text-xs mr-1.5">{labels[i]}:</span>}
+                          {url ? (
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                              {displayName(loc)}
+                            </a>
+                          ) : (
+                            displayName(loc)
+                          )}
+                        </div>
+                        {loc.locality && (
+                          <div className="text-xs text-text-secondary">
+                            {loc.locality}
+                            {loc.admin_area ? `, ${loc.admin_area}` : ''}
+                            {loc.country ? `, ${loc.country}` : ''}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )
+          })()}
 
           {/* Weather */}
-          {entry.weather && (
-            <div className="bg-bg-card border border-border rounded-lg p-3">
-              <h4 className="text-xs font-medium text-text-secondary mb-1">Weather</h4>
-              <div className="text-sm">
-                {entry.weather.temp_celsius !== null && `${Math.round(entry.weather.temp_celsius)}°C`}
-                {entry.weather.conditions && ` — ${entry.weather.conditions}`}
-              </div>
-              {entry.weather.relative_humidity !== null && (
-                <div className="text-xs text-text-secondary">
-                  Humidity: {entry.weather.relative_humidity}%
-                  {entry.weather.wind_speed_kph !== null && ` | Wind: ${Math.round(entry.weather.wind_speed_kph!)} kph`}
+          {(() => {
+            const allWeathers = entry.weathers?.length > 0 ? entry.weathers : entry.weather ? [entry.weather] : []
+            if (allWeathers.length === 0) return null
+            // If there are location-linked weathers, only show those (skip legacy standalone)
+            const locationLinked = allWeathers.filter(w => w.location_id != null)
+            const weathers = locationLinked.length > 0 ? locationLinked : allWeathers
+            const locs = entry.locations?.length > 0 ? entry.locations : entry.location ? [entry.location] : []
+            const multi = weathers.length > 1 && locs.length > 1
+            const labels = multi ? ['Start', 'End'] : [null]
+
+            const renderWeather = (w: typeof entry.weather, label?: string | null) => (
+              <div>
+                <div className="text-sm">
+                  {label && <span className="text-text-secondary text-xs mr-1.5">{label}:</span>}
+                  {w!.temp_celsius !== null && `${Math.round(w!.temp_celsius!)}°C`}
+                  {w!.conditions && ` — ${w!.conditions}`}
                 </div>
-              )}
-            </div>
-          )}
+                {w!.relative_humidity !== null && (
+                  <div className="text-xs text-text-secondary">
+                    Humidity: {w!.relative_humidity}%
+                    {w!.wind_speed_kph !== null && ` | Wind: ${Math.round(w!.wind_speed_kph!)} kph`}
+                  </div>
+                )}
+                {w!.wind_speed_kph !== null && w!.relative_humidity === null && (
+                  <div className="text-xs text-text-secondary">
+                    Wind: {Math.round(w!.wind_speed_kph!)} kph
+                  </div>
+                )}
+              </div>
+            )
+
+            return (
+              <div className="bg-bg-card border border-border rounded-lg p-3">
+                <h4 className="text-xs font-medium text-text-secondary mb-1">Weather</h4>
+                <div className="space-y-1.5">
+                  {weathers.map((w, i) => (
+                    <div key={i}>{renderWeather(w, multi ? labels[i] ?? null : null)}</div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Music */}
           {entry.music_tracks && entry.music_tracks.length > 0 ? (
@@ -693,17 +793,6 @@ export default function EntryDetail() {
           {enrichment?.gps_track && enrichment.gps_track.point_count > 0 && (
             <div className="bg-bg-card border border-border rounded-lg p-3">
               <h4 className="text-xs font-medium text-text-secondary mb-1">GPS Track</h4>
-              {(enrichment.gps_track.start_place || enrichment.gps_track.end_place) && (
-                <div className="text-sm mb-2">
-                  {enrichment.gps_track.start_place ?? 'Unknown'}
-                  {enrichment.gps_track.start_place !== enrichment.gps_track.end_place && (
-                    <>
-                      <span className="text-text-secondary"> → </span>
-                      <span>{enrichment.gps_track.end_place ?? 'Unknown'}</span>
-                    </>
-                  )}
-                </div>
-              )}
               <div className="text-xs text-text-secondary mb-2">
                 {enrichment.gps_track.point_count.toLocaleString()} GPS points
               </div>

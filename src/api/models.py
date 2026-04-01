@@ -28,6 +28,9 @@ class LocationOut(BaseModel):
     locality: str | None = None
     admin_area: str | None = None
     country: str | None = None
+    place_id: int | None = None
+    place_label: str | None = None
+    location_type: str | None = None
 
 
 class WeatherOut(BaseModel):
@@ -41,6 +44,7 @@ class WeatherOut(BaseModel):
     moon_phase: float | None = None
     sunrise: datetime | None = None
     sunset: datetime | None = None
+    location_id: int | None = None
 
 
 class MusicTrackOut(BaseModel):
@@ -132,8 +136,12 @@ class EntryDetail(BaseModel):
     mood: int | None = None
     energy: int | None = None
     parent_entry_id: int | None = None
+    prev_entry_id: int | None = None
+    next_entry_id: int | None = None
     location: LocationOut | None = None
+    locations: list[LocationOut] = []
     weather: WeatherOut | None = None
+    weathers: list[WeatherOut] = []
     music: MusicOut | None = None
     music_tracks: list[MusicTrackOut] = []
     tags: list[str] = []
@@ -148,11 +156,17 @@ class EntryList(BaseModel):
     total: int | None = None
 
 
+class CalendarDay(BaseModel):
+    day: int
+    entry_id: int
+
+
 class CalendarMonth(BaseModel):
     year: int
     month: int
     entry_count: int
     days: list[int] = []
+    day_entries: list[CalendarDay] = []
 
 
 class OnThisDayEntry(BaseModel):

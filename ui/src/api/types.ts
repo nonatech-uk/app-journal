@@ -7,6 +7,9 @@ export interface Location {
   locality: string | null
   admin_area: string | null
   country: string | null
+  place_id: number | null
+  place_label: string | null
+  location_type?: string | null
 }
 
 export interface Weather {
@@ -20,6 +23,7 @@ export interface Weather {
   moon_phase?: number | null
   sunrise?: string | null
   sunset?: string | null
+  location_id?: number | null
 }
 
 export interface Music {
@@ -90,6 +94,10 @@ export interface EntryDetail extends EntrySummary {
   entry_type: string
   mood: number | null
   energy: number | null
+  prev_entry_id: number | null
+  next_entry_id: number | null
+  locations: Location[]
+  weathers: Weather[]
   music_tracks: MusicTrack[]
   attachments: Attachment[]
 }
@@ -115,11 +123,17 @@ export interface Tag {
   entry_count: number
 }
 
+export interface CalendarDay {
+  day: number
+  entry_id: number
+}
+
 export interface CalendarMonth {
   year: number
   month: number
   entry_count: number
   days: number[]
+  day_entries: CalendarDay[]
 }
 
 export interface OnThisDayEntry {

@@ -55,7 +55,9 @@ export default function EntryCard({ entry }: { entry: EntrySummary }) {
           <div className="flex items-center gap-2 flex-wrap">
             {entry.location?.place_name && (
               <span className="text-xs text-text-secondary">
-                {entry.location.place_name}
+                {entry.location.place_label
+                  ? `${entry.location.place_label} (${entry.location.place_name})`
+                  : entry.location.place_name}
                 {entry.location.locality ? `, ${entry.location.locality}` : ''}
               </span>
             )}

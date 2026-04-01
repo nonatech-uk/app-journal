@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 
 from src.api.deps import get_conn, get_current_user
-from src.api.models import CalendarMonth, EntrySummary, LocationOut, MusicOut, OnThisDayEntry, WeatherOut
+from src.api.models import CalendarDay, CalendarMonth, EntrySummary, LocationOut, MusicOut, OnThisDayEntry, WeatherOut
 
 router = APIRouter()
 
@@ -20,10 +20,34 @@ def calendar_months(conn=Depends(get_conn), _user=Depends(get_current_user)):
         GROUP BY gregorian_year, gregorian_month
         ORDER BY gregorian_year DESC, gregorian_month DESC
     """)
-    return [
+    months = [
         CalendarMonth(year=r[0], month=r[1], entry_count=r[2], days=sorted(r[3]))
         for r in cur.fetchall()
     ]
+
+    # For each day, find the best entry to link to:
+    # prefer daily_summary, otherwise the earliest diary entry
+    cur.execute("""
+        SELECT DISTINCT ON (gregorian_year, gregorian_month, gregorian_day)
+               gregorian_year, gregorian_month, gregorian_day, id
+        FROM entry
+        WHERE gregorian_year IS NOT NULL
+        ORDER BY gregorian_year, gregorian_month, gregorian_day,
+                 CASE WHEN entry_type = 'daily_summary' THEN 0 ELSE 1 END,
+                 created_at
+    """)
+    day_entry_map: dict[tuple[int, int, int], int] = {}
+    for r in cur.fetchall():
+        day_entry_map[(r[0], r[1], r[2])] = r[3]
+
+    for m in months:
+        m.day_entries = [
+            CalendarDay(day=d, entry_id=day_entry_map[(m.year, m.month, d)])
+            for d in m.days
+            if (m.year, m.month, d) in day_entry_map
+        ]
+
+    return months
 
 
 @router.get("/on-this-day", response_model=list[OnThisDayEntry])

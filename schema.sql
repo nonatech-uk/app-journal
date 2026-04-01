@@ -111,7 +111,9 @@ CREATE TABLE IF NOT EXISTS location (
     admin_area      text,
     country         text,
     timezone_name   text,
-    user_label      text
+    user_label      text,
+    place_id        integer,
+    place_label     text
 );
 
 CREATE INDEX IF NOT EXISTS idx_location_coords ON location (latitude, longitude);
@@ -120,7 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_location_entry_id ON location (entry_id);
 
 CREATE TABLE IF NOT EXISTS weather (
     id                  serial PRIMARY KEY,
-    entry_id            integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE UNIQUE,
+    entry_id            integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
     temp_celsius        float,
     conditions          text,
     weather_code        text,
@@ -133,10 +135,13 @@ CREATE TABLE IF NOT EXISTS weather (
     moon_phase          float,
     moon_phase_code     text,
     sunrise             timestamptz,
-    sunset              timestamptz
+    sunset              timestamptz,
+    location_id         integer REFERENCES location(id) ON DELETE SET NULL,
+    sequence_order      integer DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_weather_entry_id ON weather (entry_id);
+CREATE INDEX IF NOT EXISTS idx_weather_location_id ON weather (location_id);
 
 
 CREATE TABLE IF NOT EXISTS music (

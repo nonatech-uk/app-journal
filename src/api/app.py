@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config.settings import settings
 from src.api.deps import close_pool, init_pool
-from src.api.routers import activities, auth, calendar, context, daily_summary, enrichment, entries, flights, immich, journals, map, media, people, scrobbles, search, stats, tags, trips, watches
+from src.api.routers import activities, auth, calendar, context, daily_summary, enrichment, entries, flights, immich, journals, map, media, people, places, scrobbles, search, stats, tags, trips, watches
 
 STATIC_DIR = Path(_project_root) / "static"
 
@@ -62,6 +62,7 @@ app.include_router(trips.router, prefix="/api/v1", tags=["trips"])
 app.include_router(watches.router, prefix="/api/v1", tags=["watches"])
 app.include_router(immich.router, prefix="/api/v1", tags=["immich"])
 app.include_router(daily_summary.router, prefix="/api/v1", tags=["daily_summary"])
+app.include_router(places.router, prefix="/api/v1", tags=["places"])
 
 
 @app.get("/health")

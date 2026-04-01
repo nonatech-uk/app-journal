@@ -95,17 +95,18 @@ def _build_summary(row, conn) -> EntrySummary:
             latitude=row[8], longitude=row[9],
             place_name=row[10], locality=row[11],
             admin_area=row[12], country=row[13],
+            place_id=row[14], place_label=row[15],
         )
 
     # Weather
     weather = None
-    if row[14] is not None:
-        weather = WeatherOut(temp_celsius=row[14], conditions=row[15], weather_code=row[16])
+    if row[16] is not None:
+        weather = WeatherOut(temp_celsius=row[16], conditions=row[17], weather_code=row[18])
 
     # Music
     music = None
-    if row[17]:
-        music = MusicOut(track=row[17], artist=row[18], album=row[19])
+    if row[19]:
+        music = MusicOut(track=row[19], artist=row[20], album=row[21])
 
     return EntrySummary(
         id=entry_id,
@@ -115,9 +116,9 @@ def _build_summary(row, conn) -> EntrySummary:
         created_at=row[4],
         starred=row[5],
         pinned=row[7],
-        entry_type=row[20] if len(row) > 20 else "diary",
-        parent_entry_id=row[21] if len(row) > 21 else None,
-        child_count=row[22] if len(row) > 22 else 0,
+        entry_type=row[22] if len(row) > 22 else "diary",
+        parent_entry_id=row[23] if len(row) > 23 else None,
+        child_count=row[24] if len(row) > 24 else 0,
         text_preview=preview,
         location=loc,
         weather=weather,
@@ -179,7 +180,7 @@ def list_entries(
         SELECT e.id, e.uuid, e.journal_id, j.name,
                e.created_at, e.starred, e.markdown_text, e.pinned,
                l.latitude, l.longitude, l.place_name, l.locality,
-               l.admin_area, l.country,
+               l.admin_area, l.country, l.place_id, l.place_label,
                w.temp_celsius, w.conditions, w.weather_code,
                m.track, m.artist, m.album,
                e.entry_type, e.parent_entry_id,
@@ -191,7 +192,11 @@ def list_entries(
             ORDER BY CASE WHEN location_type = 'primary' THEN 0 ELSE 1 END, sequence_order
             LIMIT 1
         ) l ON true
-        LEFT JOIN weather w ON w.entry_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT * FROM weather WHERE entry_id = e.id
+            ORDER BY sequence_order DESC
+            LIMIT 1
+        ) w ON true
         LEFT JOIN LATERAL (
             SELECT * FROM music WHERE entry_id = e.id
             ORDER BY CASE WHEN source = 'dayone' THEN 0 ELSE 1 END, played_at DESC NULLS LAST
@@ -239,15 +244,23 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
     if not row:
         raise HTTPException(404, "Entry not found")
 
-    # Location (primary first)
-    cur.execute("SELECT latitude, longitude, altitude, place_name, address, locality, admin_area, country FROM location WHERE entry_id = %s ORDER BY CASE WHEN location_type = 'primary' THEN 0 ELSE 1 END, sequence_order LIMIT 1", (entry_id,))
-    loc_row = cur.fetchone()
-    loc = LocationOut(latitude=loc_row[0], longitude=loc_row[1], altitude=loc_row[2], place_name=loc_row[3], address=loc_row[4], locality=loc_row[5], admin_area=loc_row[6], country=loc_row[7]) if loc_row else None
+    # Locations (all, ordered primary first)
+    cur.execute("SELECT latitude, longitude, altitude, place_name, address, locality, admin_area, country, place_id, place_label, location_type FROM location WHERE entry_id = %s ORDER BY CASE WHEN location_type = 'primary' THEN 0 ELSE 1 END, sequence_order", (entry_id,))
+    loc_rows = cur.fetchall()
+    locations = [
+        LocationOut(latitude=r[0], longitude=r[1], altitude=r[2], place_name=r[3], address=r[4], locality=r[5], admin_area=r[6], country=r[7], place_id=r[8], place_label=r[9], location_type=r[10])
+        for r in loc_rows
+    ]
+    loc = locations[0] if locations else None
 
-    # Weather
-    cur.execute("SELECT temp_celsius, conditions, weather_code, relative_humidity, wind_speed_kph, pressure_mb, visibility_km, moon_phase, sunrise, sunset FROM weather WHERE entry_id = %s", (entry_id,))
-    w_row = cur.fetchone()
-    weather = WeatherOut(temp_celsius=w_row[0], conditions=w_row[1], weather_code=w_row[2], relative_humidity=w_row[3], wind_speed_kph=w_row[4], pressure_mb=w_row[5], visibility_km=w_row[6], moon_phase=w_row[7], sunrise=w_row[8], sunset=w_row[9]) if w_row else None
+    # Weather (all records, ordered by sequence)
+    cur.execute("SELECT temp_celsius, conditions, weather_code, relative_humidity, wind_speed_kph, pressure_mb, visibility_km, moon_phase, sunrise, sunset, location_id FROM weather WHERE entry_id = %s ORDER BY sequence_order", (entry_id,))
+    w_rows = cur.fetchall()
+    weathers = [
+        WeatherOut(temp_celsius=r[0], conditions=r[1], weather_code=r[2], relative_humidity=r[3], wind_speed_kph=r[4], pressure_mb=r[5], visibility_km=r[6], moon_phase=r[7], sunrise=r[8], sunset=r[9], location_id=r[10])
+        for r in w_rows
+    ]
+    weather = weathers[-1] if weathers else None  # last weather for backward compat
 
     # Music (Day One entries first, then most recent scrobble)
     cur.execute("SELECT track, artist, album, album_year FROM music WHERE entry_id = %s ORDER BY CASE WHEN source = 'dayone' THEN 0 ELSE 1 END, played_at DESC NULLS LAST LIMIT 1", (entry_id,))
@@ -318,9 +331,22 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
                 attachment_count=c[6],
             ))
 
+    # Adjacent entries (prev/next by date, parent-level only)
+    created_at = row[4]
+    cur.execute(
+        "SELECT id FROM entry WHERE created_at < %s AND parent_entry_id IS NULL ORDER BY created_at DESC LIMIT 1",
+        (created_at,),
+    )
+    prev_row = cur.fetchone()
+    cur.execute(
+        "SELECT id FROM entry WHERE created_at > %s AND parent_entry_id IS NULL ORDER BY created_at ASC LIMIT 1",
+        (created_at,),
+    )
+    next_row = cur.fetchone()
+
     return EntryDetail(
         id=row[0], uuid=row[1], journal_id=row[2], journal_name=row[3],
-        created_at=row[4], modified_at=row[5],
+        created_at=created_at, modified_at=row[5],
         markdown_text=row[6], rich_text_json=rich_text,
         starred=row[8], pinned=row[9], is_draft=row[10],
         is_all_day=row[11], duration=row[12],
@@ -328,7 +354,9 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         retrospective=row[16], retrospective_at=row[17],
         entry_type=row[18], mood=row[19], energy=row[20],
         parent_entry_id=row[21],
-        location=loc, weather=weather, music=music, music_tracks=music_tracks,
+        prev_entry_id=prev_row[0] if prev_row else None,
+        next_entry_id=next_row[0] if next_row else None,
+        location=loc, locations=locations, weather=weather, weathers=weathers, music=music, music_tracks=music_tracks,
         tags=tags, attachments=attachments, children=children,
     )
 

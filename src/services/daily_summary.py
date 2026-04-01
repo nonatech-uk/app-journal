@@ -354,6 +354,11 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
             cur, mylocation_dsn, canonical_entry_id, target_date, day_start, day_end,
         )
 
+    # Weather per location (for GPS-enriched locations)
+    stats["location_weather"] = _enrich_weather_for_locations(
+        cur, canonical_entry_id, target_date,
+    )
+
     return stats
 
 
@@ -384,18 +389,63 @@ def _place_lookup(mylocation_dsn: str, lat: float, lon: float, dt: date) -> dict
         return {}
 
 
+def _enrich_weather_for_locations(cur, entry_id: int, target_date: date) -> int:
+    """Fetch historical weather for each location that doesn't already have weather."""
+    from src.services.weather import get_historical_weather
+
+    cur.execute(
+        """SELECT l.id, l.latitude, l.longitude, l.sequence_order
+           FROM location l
+           WHERE l.entry_id = %s AND l.latitude IS NOT NULL AND l.longitude IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM weather w WHERE w.location_id = l.id)
+           ORDER BY l.sequence_order""",
+        (entry_id,),
+    )
+    locations = cur.fetchall()
+    if not locations:
+        return 0
+
+    inserted = 0
+    date_str = target_date.isoformat()
+    for loc_id, lat, lon, seq in locations:
+        w = get_historical_weather(lat, lon, date_str)
+        if not w:
+            continue
+        cur.execute(
+            """INSERT INTO weather (entry_id, temp_celsius, conditions, weather_code,
+                                    relative_humidity, wind_speed_kph, wind_bearing,
+                                    pressure_mb, location_id, sequence_order)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (entry_id, w.get("temp_celsius"), w.get("conditions"), w.get("weather_code"),
+             w.get("relative_humidity"), w.get("wind_speed_kph"), w.get("wind_bearing"),
+             w.get("pressure_mb"), loc_id, seq),
+        )
+        inserted += cur.rowcount
+    return inserted
+
+
+def _coords_close(lat1: float, lon1: float, lat2: float, lon2: float) -> bool:
+    """Return True if two points are within ~100m of each other."""
+    return (lat1 - lat2) ** 2 + (lon1 - lon2) ** 2 < 0.000001
+
+
 def _enrich_gps_locations(
     cur, mylocation_dsn: str, entry_id: int, target_date: date,
     day_start: datetime, day_end: datetime,
 ) -> int:
     """Insert start/end GPS locations for the day into the location table."""
-    # Check if entry already has a primary location
+    # Check for existing locations
     cur.execute(
-        "SELECT id FROM location WHERE entry_id = %s AND location_type = 'primary'",
+        "SELECT id, latitude, longitude, location_type FROM location WHERE entry_id = %s",
         (entry_id,),
     )
-    if cur.fetchone():
-        return 0  # don't overwrite existing locations
+    existing = cur.fetchall()
+    has_primary = any(r[3] == "primary" for r in existing)
+    has_secondary = any(r[3] == "secondary" for r in existing)
+
+    # If we already have both primary and secondary, nothing to do
+    if has_primary and has_secondary:
+        return 0
 
     first = _safe_query(
         mylocation_dsn,
@@ -415,24 +465,40 @@ def _enrich_gps_locations(
         (day_start, day_end),
     )
 
-    inserted = 0
     fp = first[0]
-    place = _place_lookup(mylocation_dsn, fp["lat"], fp["lon"], target_date)
-    cur.execute(
-        """INSERT INTO location (entry_id, latitude, longitude, place_name,
-                                 locality, country, location_type, sequence_order)
-           VALUES (%s, %s, %s, %s, %s, %s, 'primary', 0)""",
-        (entry_id, fp["lat"], fp["lon"],
-         place.get("place_name"), place.get("locality"), place.get("country")),
-    )
-    inserted += cur.rowcount
+    lp = last[0] if last else fp
+    start_end_same = _coords_close(fp["lat"], fp["lon"], lp["lat"], lp["lon"])
+    inserted = 0
 
-    # End-of-day location (only if different from start)
-    if last:
-        lp = last[0]
-        # Consider same place if within ~100m
-        dist_sq = (fp["lat"] - lp["lat"]) ** 2 + (fp["lon"] - lp["lon"]) ** 2
-        if dist_sq > 0.000001:  # roughly >100m
+    if not has_primary:
+        # No existing location — insert start-of-day as primary
+        place = _place_lookup(mylocation_dsn, fp["lat"], fp["lon"], target_date)
+        cur.execute(
+            """INSERT INTO location (entry_id, latitude, longitude, place_name,
+                                     locality, country, location_type, sequence_order)
+               VALUES (%s, %s, %s, %s, %s, %s, 'primary', 0)""",
+            (entry_id, fp["lat"], fp["lon"],
+             place.get("place_name"), place.get("locality"), place.get("country")),
+        )
+        inserted += cur.rowcount
+
+        # Add end-of-day as secondary if different from start
+        if not start_end_same:
+            place_end = _place_lookup(mylocation_dsn, lp["lat"], lp["lon"], target_date)
+            cur.execute(
+                """INSERT INTO location (entry_id, latitude, longitude, place_name,
+                                         locality, country, location_type, sequence_order)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'secondary', 1)""",
+                (entry_id, lp["lat"], lp["lon"],
+                 place_end.get("place_name"), place_end.get("locality"), place_end.get("country")),
+            )
+            inserted += cur.rowcount
+    else:
+        # Has primary already — only add end-of-day if different from existing
+        primary = next(r for r in existing if r[3] == "primary")
+        existing_lat, existing_lon = primary[1], primary[2]
+
+        if not start_end_same and not _coords_close(existing_lat, existing_lon, lp["lat"], lp["lon"]):
             place_end = _place_lookup(mylocation_dsn, lp["lat"], lp["lon"], target_date)
             cur.execute(
                 """INSERT INTO location (entry_id, latitude, longitude, place_name,

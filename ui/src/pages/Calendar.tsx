@@ -28,28 +28,46 @@ export default function Calendar() {
               <div className="grid grid-cols-4 gap-2">
                 {yearMonths!
                   .sort((a, b) => b.month - a.month)
-                  .map((m) => (
-                    <Link
-                      key={`${m.year}-${m.month}`}
-                      to={`/timeline?year=${m.year}&month=${m.month}`}
-                      className="bg-bg-card border border-border rounded-lg p-3 hover:border-accent/30 transition-colors"
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-medium">{MONTH_NAMES[m.month]}</span>
-                        <span className="text-xs text-text-secondary">{m.entry_count}</span>
+                  .map((m) => {
+                    const dayEntryMap = Object.fromEntries(
+                      m.day_entries.map((de) => [de.day, de.entry_id])
+                    )
+                    return (
+                      <div
+                        key={`${m.year}-${m.month}`}
+                        className="bg-bg-card border border-border rounded-lg p-3"
+                      >
+                        <Link
+                          to={`/timeline?year=${m.year}&month=${m.month}`}
+                          className="flex justify-between items-center mb-1 hover:text-accent transition-colors"
+                        >
+                          <span className="text-sm font-medium">{MONTH_NAMES[m.month]}</span>
+                          <span className="text-xs text-text-secondary">{m.entry_count}</span>
+                        </Link>
+                        <div className="flex flex-wrap gap-0.5">
+                          {m.days.map((d) => {
+                            const entryId = dayEntryMap[d]
+                            return entryId ? (
+                              <Link
+                                key={d}
+                                to={`/entry/${entryId}`}
+                                className="w-4 h-4 flex items-center justify-center text-[9px] bg-accent/10 text-accent rounded hover:bg-accent/30 transition-colors"
+                              >
+                                {d}
+                              </Link>
+                            ) : (
+                              <span
+                                key={d}
+                                className="w-4 h-4 flex items-center justify-center text-[9px] bg-accent/10 text-accent rounded"
+                              >
+                                {d}
+                              </span>
+                            )
+                          })}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-0.5">
-                        {m.days.map((d) => (
-                          <span
-                            key={d}
-                            className="w-4 h-4 flex items-center justify-center text-[9px] bg-accent/10 text-accent rounded"
-                          >
-                            {d}
-                          </span>
-                        ))}
-                      </div>
-                    </Link>
-                  ))}
+                    )
+                  })}
               </div>
             </div>
           ))}
