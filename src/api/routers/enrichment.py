@@ -62,8 +62,10 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
         "gps_summary": None,
         "tautulli_watches": [],
         "flights": [],
+        "rail_journeys": [],
         "skiing": [],
         "watches": [],
+        "events": [],
     }
 
     # Scrobbles (±2 hours around entry time)
@@ -195,49 +197,64 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
         result["gps_track"] = gps_track
         result["gps_summary"] = None  # deprecated, kept for backward compat
 
-    # Flights (same day, exclude route records)
-    if settings.mylocation_db_password:
-        result["flights"] = _safe_query(
-            mylocation_dsn,
-            """SELECT id, date, flight_number, dep_airport, dep_airport_name,
-                      arr_airport, arr_airport_name, dep_time, arr_time, duration,
-                      airline, aircraft_type, registration, seat_number,
-                      flight_class, distance_km, source
-               FROM flights
-               WHERE date = %s::date AND is_route = FALSE
-               ORDER BY dep_time NULLS LAST""",
-            (entry_date,),
-        )
+    # Flights (same day, exclude route records — local table)
+    entry_date_val = entry_date.date() if hasattr(entry_date, "date") else entry_date
+    cur.execute("""
+        SELECT id, date, flight_number, dep_airport, dep_airport_name,
+               arr_airport, arr_airport_name, dep_time, arr_time, duration,
+               airline, aircraft_type, registration, seat_number,
+               flight_class, distance_km, source
+        FROM flight
+        WHERE date = %s AND is_route = FALSE
+        ORDER BY dep_time NULLS LAST
+    """, (entry_date_val,))
+    flight_cols = [desc[0] for desc in cur.description]
+    result["flights"] = [dict(zip(flight_cols, r)) for r in cur.fetchall()]
 
-        # Also check already-linked flights for this entry
-        cur.execute(
-            "SELECT flight_id, flight_type FROM entry_flight WHERE entry_id = %s",
-            (entry_id,),
-        )
-        linked = {(r[0], r[1]) for r in cur.fetchall()}
-        for f in result["flights"]:
-            f["linked"] = (f["id"], "commercial") in linked
+    cur.execute(
+        "SELECT flight_id, flight_type FROM entry_flight WHERE entry_id = %s",
+        (entry_id,),
+    )
+    linked = {(r[0], r[1]) for r in cur.fetchall()}
+    for f in result["flights"]:
+        f["linked"] = (f["id"], "commercial") in linked
 
-    # Skiing days (same day)
-    if settings.mylocation_db_password:
-        skiing_rows = _safe_query(
-            mylocation_dsn,
-            """SELECT id, date, location, duration_hours, distance_km,
-                      vertical_up_m, vertical_down_m, max_speed_kmh,
-                      max_altitude_m, num_runs, num_lifts, season
-               FROM skiing_days
-               WHERE date = %s::date""",
-            (entry_date,),
-        )
-        # Check which are already linked via activity table
-        cur.execute(
-            "SELECT skiing_day_id FROM activity WHERE entry_id = %s AND skiing_day_id IS NOT NULL",
-            (entry_id,),
-        )
-        linked_skiing = {r[0] for r in cur.fetchall()}
-        for s in skiing_rows:
-            s["linked"] = s["id"] in linked_skiing
-        result["skiing"] = skiing_rows
+    # Rail journeys (same day — local table)
+    cur.execute("""
+        SELECT id, date, time, from_station, from_code, to_station, to_code,
+               operator, train, via
+        FROM rail_journey
+        WHERE date = %s
+        ORDER BY time NULLS LAST
+    """, (entry_date_val,))
+    rail_cols = [desc[0] for desc in cur.description]
+    rail_journeys = [dict(zip(rail_cols, r)) for r in cur.fetchall()]
+
+    cur.execute("SELECT rail_journey_id FROM entry_rail_journey WHERE entry_id = %s", (entry_id,))
+    linked_rail = {r[0] for r in cur.fetchall()}
+    for rj in rail_journeys:
+        rj["linked"] = rj["id"] in linked_rail
+    result["rail_journeys"] = rail_journeys
+
+    # Skiing days (same day — local table)
+    cur.execute("""
+        SELECT id, date, location, duration_hours, distance_km,
+               vertical_up_m, vertical_down_m, max_speed_kmh,
+               max_altitude_m, num_runs, num_lifts, season
+        FROM skiing_day
+        WHERE date = %s
+    """, (entry_date_val,))
+    ski_cols = [desc[0] for desc in cur.description]
+    skiing_rows = [dict(zip(ski_cols, r)) for r in cur.fetchall()]
+
+    cur.execute(
+        "SELECT skiing_day_id FROM activity WHERE entry_id = %s AND skiing_day_id IS NOT NULL",
+        (entry_id,),
+    )
+    linked_skiing = {r[0] for r in cur.fetchall()}
+    for s in skiing_rows:
+        s["linked"] = s["id"] in linked_skiing
+    result["skiing"] = skiing_rows
 
     # Tautulli watches (same day, movies + episodes only)
     if settings.tautulli_api_key:
@@ -290,5 +307,23 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
             result["watches"] = watches
         except Exception:
             pass
+
+    # Events (matching date — including multi-day events that span this date)
+    entry_date_only = entry_date.date() if hasattr(entry_date, "date") else entry_date
+    cur.execute("""
+        SELECT e.id, e.title, et.name AS event_type, e.event_date, e.end_date, e.place_label
+        FROM event e
+        JOIN event_type et ON et.id = e.event_type_id
+        WHERE e.event_date <= %s AND COALESCE(e.end_date, e.event_date) >= %s
+        ORDER BY e.event_date
+    """, (entry_date_only, entry_date_only))
+    event_cols = [desc[0] for desc in cur.description]
+    events = [dict(zip(event_cols, r)) for r in cur.fetchall()]
+
+    cur.execute("SELECT event_id FROM entry_event WHERE entry_id = %s", (entry_id,))
+    linked_events = {r[0] for r in cur.fetchall()}
+    for ev in events:
+        ev["linked"] = ev["id"] in linked_events
+    result["events"] = events
 
     return result

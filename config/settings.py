@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     mylocation_public_url: str = "https://locs.mees.st"
 
+    # Pipeline ingest
+    pipeline_secret: str = ""
+
+    # Flight enrichment
+    flightaware_api_key: str = ""
+    flight_image_cache_dir: str = "/data/journal/flight-images"
+
     # Media — path to journal media files
     media_root: str = "/data/journal/media"
 

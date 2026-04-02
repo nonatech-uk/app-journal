@@ -1,6 +1,6 @@
 """Pydantic response models."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -114,6 +114,15 @@ class ChildEntrySummary(BaseModel):
     attachment_count: int = 0
 
 
+class EntryEventOut(BaseModel):
+    id: int
+    title: str
+    event_type: str
+    event_date: date
+    end_date: date | None = None
+    place_label: str | None = None
+
+
 class EntryDetail(BaseModel):
     id: int
     uuid: str
@@ -147,6 +156,7 @@ class EntryDetail(BaseModel):
     music_tracks: list[MusicTrackOut] = []
     tags: list[str] = []
     attachments: list[AttachmentOut] = []
+    events: list[EntryEventOut] = []
     children: list[ChildEntrySummary] = []
 
 

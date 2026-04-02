@@ -279,76 +279,78 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
         except Exception as e:
             log.warning("Tautulli query failed: %s", e)
 
-    # Flights (commercial)
-    mylocation_dsn = None
-    if settings.mylocation_db_password:
-        mylocation_dsn = settings.cross_dsn(
-            settings.mylocation_db_name, settings.mylocation_db_user, settings.mylocation_db_password
+    # Flights — commercial (local table)
+    cur.execute("SELECT id FROM flight WHERE date = %s AND is_route = FALSE", (target_date,))
+    imported = 0
+    for (fid,) in cur.fetchall():
+        cur.execute(
+            """INSERT INTO entry_flight (entry_id, flight_id, flight_type)
+               VALUES (%s, %s, 'commercial') ON CONFLICT DO NOTHING""",
+            (canonical_entry_id, fid),
         )
-        flights = _safe_query(
-            mylocation_dsn,
-            """SELECT id FROM flights
-               WHERE date = %s AND is_route = FALSE""",
-            (target_date,),
-        )
-        imported = 0
-        for f in flights:
-            cur.execute(
-                """INSERT INTO entry_flight (entry_id, flight_id, flight_type)
-                   VALUES (%s, %s, 'commercial')
-                   ON CONFLICT DO NOTHING""",
-                (canonical_entry_id, f["id"]),
-            )
-            imported += cur.rowcount
-        stats["flights"] = imported
+        imported += cur.rowcount
+    stats["flights"] = imported
 
-        # GA flights
-        ga_flights = _safe_query(
-            mylocation_dsn,
-            "SELECT id FROM ga_flights WHERE date = %s",
-            (target_date,),
+    # Flights — GA (local table)
+    cur.execute("SELECT id FROM ga_flight WHERE date = %s", (target_date,))
+    ga_imported = 0
+    for (fid,) in cur.fetchall():
+        cur.execute(
+            """INSERT INTO entry_flight (entry_id, flight_id, flight_type)
+               VALUES (%s, %s, 'ga') ON CONFLICT DO NOTHING""",
+            (canonical_entry_id, fid),
         )
-        ga_imported = 0
-        for f in ga_flights:
-            cur.execute(
-                """INSERT INTO entry_flight (entry_id, flight_id, flight_type)
-                   VALUES (%s, %s, 'ga')
-                   ON CONFLICT DO NOTHING""",
-                (canonical_entry_id, f["id"]),
-            )
-            ga_imported += cur.rowcount
-        stats["ga_flights"] = ga_imported
+        ga_imported += cur.rowcount
+    stats["ga_flights"] = ga_imported
 
-    # Skiing days
-    if mylocation_dsn:
-        skiing_rows = _safe_query(
-            mylocation_dsn,
-            """SELECT id, date, location, duration_hours, distance_km,
-                      vertical_up_m, vertical_down_m, max_speed_kmh,
-                      max_altitude_m, num_runs, num_lifts
-               FROM skiing_days WHERE date = %s""",
-            (target_date,),
+    # Rail journeys (local table)
+    cur.execute("SELECT id FROM rail_journey WHERE date = %s", (target_date,))
+    rail_imported = 0
+    for (rid,) in cur.fetchall():
+        cur.execute(
+            """INSERT INTO entry_rail_journey (entry_id, rail_journey_id)
+               VALUES (%s, %s) ON CONFLICT DO NOTHING""",
+            (canonical_entry_id, rid),
         )
-        imported = 0
-        for s in skiing_rows:
-            # Check if already linked via skiing_day_id
+        rail_imported += cur.rowcount
+    stats["rail_journeys"] = rail_imported
+
+    # Skiing days (local table)
+    cur.execute("""
+        SELECT id, location, duration_hours, distance_km,
+               vertical_up_m, vertical_down_m, max_altitude_m
+        FROM skiing_day WHERE date = %s
+    """, (target_date,))
+    ski_cols = [desc[0] for desc in cur.description]
+    skiing_rows = [dict(zip(ski_cols, r)) for r in cur.fetchall()]
+    ski_imported = 0
+    for s in skiing_rows:
+        cur.execute(
+            "SELECT id FROM activity WHERE entry_id = %s AND skiing_day_id = %s",
+            (canonical_entry_id, s["id"]),
+        )
+        if not cur.fetchone():
             cur.execute(
-                "SELECT id FROM activity WHERE entry_id = %s AND skiing_day_id = %s",
-                (canonical_entry_id, s["id"]),
+                """INSERT INTO activity
+                       (entry_id, activity_type, title, skiing_day_id,
+                        distance_km, duration_seconds,
+                        elevation_gain, elevation_loss, max_altitude)
+                   VALUES (%s, 'skiing', %s, %s, %s, %s, %s, %s, %s)""",
+                (canonical_entry_id, s["location"], s["id"],
+                 s.get("distance_km"), int(s["duration_hours"] * 3600) if s.get("duration_hours") else None,
+                 s.get("vertical_up_m"), s.get("vertical_down_m"), s.get("max_altitude_m")),
             )
-            if not cur.fetchone():
-                cur.execute(
-                    """INSERT INTO activity
-                           (entry_id, activity_type, title, skiing_day_id,
-                            distance_km, duration_seconds,
-                            elevation_gain, elevation_loss, max_altitude)
-                       VALUES (%s, 'skiing', %s, %s, %s, %s, %s, %s, %s)""",
-                    (canonical_entry_id, s["location"], s["id"],
-                     s.get("distance_km"), int(s["duration_hours"] * 3600) if s.get("duration_hours") else None,
-                     s.get("vertical_up_m"), s.get("vertical_down_m"), s.get("max_altitude_m")),
-                )
-                imported += cur.rowcount
-        stats["skiing"] = imported
+            ski_imported += cur.rowcount
+    stats["skiing"] = ski_imported
+
+    # Events (from local event table, date-matched including multi-day)
+    cur.execute("""
+        INSERT INTO entry_event (entry_id, event_id)
+        SELECT %s, id FROM event
+        WHERE event_date <= %s AND COALESCE(end_date, event_date) >= %s
+        ON CONFLICT DO NOTHING
+    """, (canonical_entry_id, target_date, target_date))
+    stats["events"] = cur.rowcount
 
     # GPS start/end locations
     if mylocation_dsn:
@@ -560,8 +562,10 @@ def run_daily_enrichment(conn, settings, target_date: date | None = None) -> dic
         if row:
             result["enrichment"] = enrich_from_sources(conn, settings, row[0], target_date)
         else:
-            # No entries — auto-create daily_summary if GPS data exists
+            # No entries — auto-create daily_summary if GPS data or events exist
             entry_id = _auto_create_from_gps(cur, settings, target_date)
+            if not entry_id:
+                entry_id = _auto_create_for_events(cur, target_date)
             if entry_id:
                 result["auto_created"] = True
                 result["enrichment"] = enrich_from_sources(conn, settings, entry_id, target_date)
@@ -602,4 +606,28 @@ def _auto_create_from_gps(cur, settings, target_date: date) -> int | None:
     )
     row = cur.fetchone()
     log.info("Auto-created daily_summary entry %s for %s", row[0], target_date)
+    return row[0]
+
+
+def _auto_create_for_events(cur, target_date: date) -> int | None:
+    """Create a daily_summary entry if events exist for the date. Returns entry id or None."""
+    cur.execute(
+        "SELECT count(*) FROM event WHERE event_date <= %s AND COALESCE(end_date, event_date) >= %s",
+        (target_date, target_date),
+    )
+    if cur.fetchone()[0] == 0:
+        return None
+
+    day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+    title = f"## {target_date.day} {target_date.strftime('%B')} {target_date.year}"
+    cur.execute(
+        """INSERT INTO entry (uuid, created_at, gregorian_year, gregorian_month, gregorian_day,
+                              entry_type, is_all_day, markdown_text)
+           VALUES (gen_random_uuid()::text, %s, %s, %s, %s,
+                   'daily_summary', true, %s)
+           RETURNING id""",
+        (day_start, target_date.year, target_date.month, target_date.day, title),
+    )
+    row = cur.fetchone()
+    log.info("Auto-created daily_summary entry %s for events on %s", row[0], target_date)
     return row[0]

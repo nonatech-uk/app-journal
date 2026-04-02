@@ -4,7 +4,7 @@ import Markdown from 'react-markdown'
 import { useEntry, useEnrichment } from '../hooks/useEntry'
 import { useAuth } from '../hooks/useAuth'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { toggleStar, updateEntry, deleteEntry, uploadVoiceNote, attachImmichPhotos, linkFlight, unlinkFlight, linkSkiingDay, importAllScrobbles, importAllWatches, fetchEntryPeople, searchPeople, linkPerson, unlinkPerson, createPerson, deleteAttachment, uploadAttachment } from '../api/entries'
+import { toggleStar, updateEntry, deleteEntry, uploadVoiceNote, attachImmichPhotos, linkFlight, unlinkFlight, linkRailJourney, unlinkRailJourney, linkAllRailJourneys, linkSkiingDay, importAllScrobbles, importAllWatches, linkEvent, unlinkEvent, linkAllEvents, fetchEntryPeople, searchPeople, linkPerson, unlinkPerson, createPerson, deleteAttachment, uploadAttachment } from '../api/entries'
 import type { PersonSummary } from '../api/entries'
 import VoiceRecorder from '../components/VoiceRecorder'
 import ImmichBrowser from '../components/ImmichBrowser'
@@ -703,6 +703,32 @@ export default function EntryDetail() {
             </div>
           )}
 
+          {/* Linked Events */}
+          {entry.events && entry.events.length > 0 && (
+            <div className="bg-bg-card border border-border rounded-lg p-3">
+              <h4 className="text-xs font-medium text-text-secondary mb-1">
+                Events ({entry.events.length})
+              </h4>
+              <div className="space-y-1.5">
+                {entry.events.map((ev) => (
+                  <div
+                    key={ev.id}
+                    className="flex items-center gap-2 text-sm cursor-pointer hover:bg-bg-hover rounded px-1 -mx-1 py-0.5"
+                    onClick={() => navigate(`/event/${ev.id}`)}
+                  >
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-secondary text-text-secondary shrink-0">
+                      {ev.event_type}
+                    </span>
+                    <span className="text-text-primary font-medium truncate">{ev.title}</span>
+                    {ev.place_label && (
+                      <span className="text-xs text-text-secondary ml-auto shrink-0">{ev.place_label}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Enrichment — Scrobbles (only show if there are unlinked ones to import) */}
           {enrichment?.scrobbles && enrichment.scrobbles.some(s => !s.linked) && (
             <div className="bg-bg-card border border-border rounded-lg p-3">
@@ -859,6 +885,64 @@ export default function EntryDetail() {
             </div>
           )}
 
+          {/* Enrichment — Events */}
+          {enrichment?.events && enrichment.events.length > 0 && (
+            <div className="bg-bg-card border border-border rounded-lg p-3">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-xs font-medium text-text-secondary">
+                  Events ({enrichment.events.length})
+                </h4>
+                {user?.role === 'admin' && enrichment.events.some(e => !e.linked) && (
+                  <button
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20"
+                    onClick={async () => {
+                      if (!entryId) return
+                      await linkAllEvents(entryId)
+                      queryClient.invalidateQueries({ queryKey: ['enrichment', entryId] })
+                      queryClient.invalidateQueries({ queryKey: ['entry', entryId] })
+                    }}
+                  >
+                    Link all
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                {enrichment.events.map((ev) => (
+                  <div key={ev.id} className="text-xs flex items-center gap-1.5">
+                    <span className="text-[10px] px-1 py-0.5 rounded bg-bg-secondary text-text-secondary shrink-0">
+                      {ev.event_type}
+                    </span>
+                    <span className="font-medium text-text-primary truncate">{ev.title}</span>
+                    {ev.place_label && (
+                      <span className="text-text-secondary truncate hidden lg:inline">· {ev.place_label}</span>
+                    )}
+                    {user?.role === 'admin' && (
+                      <button
+                        className={`ml-auto shrink-0 text-xs px-1.5 py-0.5 rounded ${
+                          ev.linked
+                            ? 'bg-accent/20 text-accent'
+                            : 'bg-bg-secondary text-text-secondary hover:bg-accent/10 hover:text-accent'
+                        }`}
+                        onClick={async () => {
+                          if (!entryId) return
+                          if (ev.linked) {
+                            await unlinkEvent(entryId, ev.id)
+                          } else {
+                            await linkEvent(entryId, ev.id)
+                          }
+                          queryClient.invalidateQueries({ queryKey: ['enrichment', entryId] })
+                          queryClient.invalidateQueries({ queryKey: ['entry', entryId] })
+                        }}
+                      >
+                        {ev.linked ? '✓' : 'Link'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Enrichment — Flights */}
           {enrichment?.flights && enrichment.flights.length > 0 && (
             <div className="bg-bg-card border border-border rounded-lg p-3">
@@ -902,6 +986,63 @@ export default function EntryDetail() {
                       {f.dep_time && <span> · {f.dep_time.slice(0, 5)}</span>}
                       {f.distance_km && <span> · {f.distance_km} km</span>}
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Enrichment — Rail Journeys */}
+          {enrichment?.rail_journeys && enrichment.rail_journeys.length > 0 && (
+            <div className="bg-bg-card border border-border rounded-lg p-3">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-xs font-medium text-text-secondary">
+                  Rail ({enrichment.rail_journeys.length})
+                </h4>
+                {user?.role === 'admin' && enrichment.rail_journeys.some(rj => !rj.linked) && (
+                  <button
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20"
+                    onClick={async () => {
+                      if (!entryId) return
+                      await linkAllRailJourneys(entryId)
+                      queryClient.invalidateQueries({ queryKey: ['enrichment', entryId] })
+                    }}
+                  >
+                    Link all
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                {enrichment.rail_journeys.map((rj) => (
+                  <div key={rj.id} className="text-xs flex items-center gap-1.5">
+                    <span className="font-medium text-text-primary">
+                      {rj.from_station} → {rj.to_station}
+                    </span>
+                    {rj.operator && (
+                      <span className="text-text-secondary">({rj.operator})</span>
+                    )}
+                    {rj.time && (
+                      <span className="text-text-secondary">{String(rj.time).slice(0, 5)}</span>
+                    )}
+                    {user?.role === 'admin' && (
+                      <button
+                        className={`ml-auto shrink-0 text-xs px-1.5 py-0.5 rounded ${
+                          rj.linked
+                            ? 'bg-accent/20 text-accent'
+                            : 'bg-bg-secondary text-text-secondary hover:bg-accent/10 hover:text-accent'
+                        }`}
+                        onClick={async () => {
+                          if (!entryId) return
+                          if (rj.linked) {
+                            await unlinkRailJourney(entryId, rj.id)
+                          } else {
+                            await linkRailJourney(entryId, rj.id)
+                          }
+                          queryClient.invalidateQueries({ queryKey: ['enrichment', entryId] })
+                        }}
+                      >
+                        {rj.linked ? '✓' : 'Link'}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

@@ -90,6 +90,16 @@ def get_trip(trip_id: int, conn=Depends(get_conn), _user=Depends(get_current_use
     cur.execute("SELECT key, value, unit FROM trip_stat WHERE trip_id = %s ORDER BY key", (trip_id,))
     trip["stats"] = [{"key": r[0], "value": r[1], "unit": r[2]} for r in cur.fetchall()]
 
+    # Events linked to this trip
+    cur.execute("""
+        SELECT e.id, e.title, e.event_date, e.end_date, et.name AS event_type, e.fuzzy_date, e.place_label
+        FROM event e
+        JOIN event_type et ON et.id = e.event_type_id
+        WHERE e.trip_id = %s ORDER BY e.event_date
+    """, (trip_id,))
+    evt_cols = [desc[0] for desc in cur.description]
+    trip["events"] = [dict(zip(evt_cols, r)) for r in cur.fetchall()]
+
     return trip
 
 

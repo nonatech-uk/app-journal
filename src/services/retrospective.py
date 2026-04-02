@@ -33,6 +33,7 @@ class DayData:
     date: date
     flights: list[dict] = field(default_factory=list)
     ga_flights: list[dict] = field(default_factory=list)
+    rail_journeys: list[dict] = field(default_factory=list)
     skiing: list[dict] = field(default_factory=list)
     scrobbles: list[dict] = field(default_factory=list)
     watches: list[dict] = field(default_factory=list)
@@ -46,6 +47,7 @@ def discover_candidate_dates(
     http_client: httpx.Client,
     start_date: date | None = None,
     end_date: date | None = None,
+    conn=None,
 ) -> dict[str, set[date]]:
     """Return dates with activity per source. Keys: immich, flights, ga_flights, skiing, scrobbles."""
     sd = start_date or date(1980, 1, 1)
@@ -55,26 +57,20 @@ def discover_candidate_dates(
     mylocation_dsn = settings.cross_dsn(settings.mylocation_db_name, settings.mylocation_db_user, settings.mylocation_db_password)
     scrobble_dsn = settings.cross_dsn(settings.scrobble_db_name, settings.scrobble_db_user, settings.scrobble_db_password)
 
-    # Commercial flights
-    if settings.mylocation_db_password:
-        rows = _safe_query(mylocation_dsn,
-            "SELECT DISTINCT date FROM flights WHERE is_route = FALSE AND date BETWEEN %s AND %s",
-            (sd, ed))
-        sources["flights"] = {r["date"] for r in rows}
+    # Commercial flights (local journal DB table)
+    if conn:
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT date FROM flight WHERE is_route = FALSE AND date BETWEEN %s AND %s", (sd, ed))
+        sources["flights"] = {r[0] for r in cur.fetchall()}
+        cur.execute("SELECT DISTINCT date FROM ga_flight WHERE date BETWEEN %s AND %s", (sd, ed))
+        sources["ga_flights"] = {r[0] for r in cur.fetchall()}
+        cur.execute("SELECT DISTINCT date FROM rail_journey WHERE date BETWEEN %s AND %s", (sd, ed))
+        sources["rail_journeys"] = {r[0] for r in cur.fetchall()}
 
-    # GA flights
-    if settings.mylocation_db_password:
-        rows = _safe_query(mylocation_dsn,
-            "SELECT DISTINCT date FROM ga_flights WHERE date BETWEEN %s AND %s",
-            (sd, ed))
-        sources["ga_flights"] = {r["date"] for r in rows}
-
-    # Skiing days
-    if settings.mylocation_db_password:
-        rows = _safe_query(mylocation_dsn,
-            "SELECT DISTINCT date FROM skiing_days WHERE date BETWEEN %s AND %s",
-            (sd, ed))
-        sources["skiing"] = {r["date"] for r in rows}
+    # Skiing days (local table)
+    if conn:
+        cur.execute("SELECT DISTINCT date FROM skiing_day WHERE date BETWEEN %s AND %s", (sd, ed))
+        sources["skiing"] = {r[0] for r in cur.fetchall()}
 
     # Scrobbles
     if settings.scrobble_db_password:
@@ -140,41 +136,58 @@ def collect_day_data(
     settings,
     http_client: httpx.Client,
     d: date,
+    conn=None,
 ) -> DayData:
     """Gather all data for a single date from all sources."""
     day = DayData(date=d)
     mylocation_dsn = settings.cross_dsn(settings.mylocation_db_name, settings.mylocation_db_user, settings.mylocation_db_password)
+    cur = conn.cursor() if conn else None
     scrobble_dsn = settings.cross_dsn(settings.scrobble_db_name, settings.scrobble_db_user, settings.scrobble_db_password)
 
-    # Commercial flights
-    if settings.mylocation_db_password:
-        day.flights = _safe_query(mylocation_dsn,
-            """SELECT id, date, flight_number, dep_airport, dep_airport_name,
-                      arr_airport, arr_airport_name, dep_time, arr_time, duration,
-                      airline, aircraft_type, registration, distance_km,
-                      dep_lat, dep_lon, arr_lat, arr_lon
-               FROM flights WHERE date = %s AND is_route = FALSE
-               ORDER BY dep_time NULLS LAST""",
-            (d,))
+    # Commercial flights (local journal DB table)
+    if cur:
+        cur.execute("""
+            SELECT id, date, flight_number, dep_airport, dep_airport_name,
+                   arr_airport, arr_airport_name, dep_time, arr_time, duration,
+                   airline, aircraft_type, registration, distance_km,
+                   dep_lat, dep_lon, arr_lat, arr_lon
+            FROM flight WHERE date = %s AND is_route = FALSE
+            ORDER BY dep_time NULLS LAST
+        """, (d,))
+        cols = [desc[0] for desc in cur.description]
+        day.flights = [dict(zip(cols, r)) for r in cur.fetchall()]
 
-    # GA flights
-    if settings.mylocation_db_password:
-        day.ga_flights = _safe_query(mylocation_dsn,
-            """SELECT id, date, aircraft_type, registration, captain,
-                      operating_capacity, dep_airport, arr_airport,
-                      dep_time, arr_time, hours_total, exercise, comments
-               FROM ga_flights WHERE date = %s
-               ORDER BY dep_time NULLS LAST""",
-            (d,))
+        # GA flights (local journal DB table)
+        cur.execute("""
+            SELECT id, date, aircraft_type, registration, captain,
+                   operating_capacity, dep_airport, arr_airport,
+                   dep_time, arr_time, hours_total, exercise, comments
+            FROM ga_flight WHERE date = %s
+            ORDER BY dep_time NULLS LAST
+        """, (d,))
+        ga_cols = [desc[0] for desc in cur.description]
+        day.ga_flights = [dict(zip(ga_cols, r)) for r in cur.fetchall()]
 
-    # Skiing
-    if settings.mylocation_db_password:
-        day.skiing = _safe_query(mylocation_dsn,
-            """SELECT id, date, location, duration_hours, distance_km,
-                      vertical_up_m, vertical_down_m, max_speed_kmh,
-                      max_altitude_m, num_runs, num_lifts, season
-               FROM skiing_days WHERE date = %s""",
-            (d,))
+        # Rail journeys (local journal DB table)
+        cur.execute("""
+            SELECT id, date, time, from_station, from_code, to_station, to_code,
+                   operator, train, via
+            FROM rail_journey WHERE date = %s
+            ORDER BY time NULLS LAST
+        """, (d,))
+        rj_cols = [desc[0] for desc in cur.description]
+        day.rail_journeys = [dict(zip(rj_cols, r)) for r in cur.fetchall()]
+
+    # Skiing (local journal DB table)
+    if cur:
+        cur.execute("""
+            SELECT id, date, location, duration_hours, distance_km,
+                   vertical_up_m, vertical_down_m, max_speed_kmh,
+                   max_altitude_m, num_runs, num_lifts, season
+            FROM skiing_day WHERE date = %s
+        """, (d,))
+        sk_cols = [desc[0] for desc in cur.description]
+        day.skiing = [dict(zip(sk_cols, r)) for r in cur.fetchall()]
 
     # Scrobbles
     if settings.scrobble_db_password:
@@ -373,6 +386,23 @@ def generate_markdown(day_data: DayData) -> str:
         lines.extend(all_flights)
         lines.append("")
 
+    # Rail journeys
+    if day_data.rail_journeys:
+        lines.append("## Rail")
+        for rj in day_data.rail_journeys:
+            fr = rj.get("from_station", "?")
+            to = rj.get("to_station", "?")
+            op = rj.get("operator") or ""
+            entry = f"- {fr} → {to}"
+            if op:
+                entry += f" ({op})"
+            if rj.get("time"):
+                t = rj["time"]
+                time_str = t.strftime("%H:%M") if hasattr(t, "strftime") else str(t)[:5]
+                entry += f" at {time_str}"
+            lines.append(entry)
+        lines.append("")
+
     # Skiing
     if day_data.skiing:
         lines.append("## Skiing")
@@ -495,6 +525,14 @@ def create_retrospective_entry(
             """INSERT INTO entry_flight (entry_id, flight_id, flight_type)
                VALUES (%s, %s, 'ga') ON CONFLICT DO NOTHING""",
             (entry_id, f["id"]),
+        )
+
+    # 5b. Link rail journeys
+    for rj in day_data.rail_journeys:
+        cur.execute(
+            """INSERT INTO entry_rail_journey (entry_id, rail_journey_id)
+               VALUES (%s, %s) ON CONFLICT DO NOTHING""",
+            (entry_id, rj["id"]),
         )
 
     # 6. Link skiing

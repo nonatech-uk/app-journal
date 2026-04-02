@@ -72,7 +72,7 @@ def main() -> None:
     try:
         # Phase 1: Discovery
         print("=== Phase 1: Discovering candidate dates ===")
-        sources = discover_candidate_dates(settings, client, start_date, end_date)
+        sources = discover_candidate_dates(settings, client, start_date, end_date, conn=conn)
         all_candidates: set[date] = set()
         for name, dates in sources.items():
             print(f"  {name}: {len(dates)} dates")
@@ -94,11 +94,11 @@ def main() -> None:
         print(f"=== Phase 3: Processing {len(missing)} dates ===")
         for i, d in enumerate(missing):
             try:
-                day_data = collect_day_data(settings, client, d)
+                day_data = collect_day_data(settings, client, d, conn=conn)
 
                 # Skip if no meaningful data at all
-                has_data = (day_data.flights or day_data.ga_flights or day_data.skiing
-                           or day_data.scrobbles or day_data.watches or day_data.photos)
+                has_data = (day_data.flights or day_data.ga_flights or day_data.rail_journeys
+                           or day_data.skiing or day_data.scrobbles or day_data.watches or day_data.photos)
                 if not has_data:
                     stats["skipped_empty"] += 1
                     continue
@@ -109,6 +109,7 @@ def main() -> None:
                     sources_str = []
                     if day_data.flights: sources_str.append(f"{len(day_data.flights)} flights")
                     if day_data.ga_flights: sources_str.append(f"{len(day_data.ga_flights)} GA flights")
+                    if day_data.rail_journeys: sources_str.append(f"{len(day_data.rail_journeys)} rail journeys")
                     if day_data.skiing: sources_str.append(f"{len(day_data.skiing)} skiing")
                     if day_data.scrobbles: sources_str.append(f"{len(day_data.scrobbles)} scrobbles")
                     if day_data.watches: sources_str.append(f"{len(day_data.watches)} watches")

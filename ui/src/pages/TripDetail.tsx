@@ -15,6 +15,16 @@ interface TripEntry {
   country: string | null
 }
 
+interface TripEvent {
+  id: number
+  title: string
+  event_date: string
+  end_date: string | null
+  event_type: string
+  fuzzy_date: boolean
+  place_label: string | null
+}
+
 interface TripDetailData {
   id: number
   path: string
@@ -31,6 +41,7 @@ interface TripDetailData {
   notes: string | null
   entries: TripEntry[]
   stats: { key: string; value: string; unit: string | null }[]
+  events: TripEvent[]
 }
 
 function fetchTrip(id: number): Promise<TripDetailData> {
@@ -119,6 +130,38 @@ export default function TripDetail() {
               <div className="text-[10px] text-text-secondary">{s.key}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Events */}
+      {trip.events && trip.events.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-sm font-medium text-text-secondary mb-3">
+            Events ({trip.events.length})
+          </h3>
+          <div className="space-y-2">
+            {trip.events.map(ev => (
+              <div
+                key={ev.id}
+                className="bg-bg-card border border-border rounded-lg p-3 hover:border-accent/50 cursor-pointer transition-colors"
+                onClick={() => navigate(`/event/${ev.id}`)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-text-secondary">
+                    {ev.fuzzy_date ? '~' : ''}
+                    {formatDate(ev.event_date)}
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-secondary text-text-secondary">
+                    {ev.event_type}
+                  </span>
+                  <span className="text-sm text-text-primary font-medium">{ev.title}</span>
+                  {ev.place_label && (
+                    <span className="text-xs text-text-secondary ml-auto">{ev.place_label}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

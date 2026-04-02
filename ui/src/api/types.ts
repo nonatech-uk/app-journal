@@ -101,6 +101,7 @@ export interface EntryDetail extends EntrySummary {
   weathers: Weather[]
   music_tracks: MusicTrack[]
   attachments: Attachment[]
+  events: { id: number; title: string; event_type: string; event_date: string; end_date: string | null; place_label: string | null }[]
 }
 
 export interface EntryList {
@@ -228,6 +229,19 @@ export interface Enrichment {
   } | null
   tautulli_watches: { title: string; media_type: string }[]
   flights: EnrichmentFlight[]
+  rail_journeys: {
+    id: number
+    date: string
+    time: string | null
+    from_station: string
+    from_code: string | null
+    to_station: string
+    to_code: string | null
+    operator: string | null
+    train: string | null
+    via: string | null
+    linked: boolean
+  }[]
   skiing: EnrichmentSkiing[]
   watches: {
     title: string
@@ -241,6 +255,15 @@ export interface Enrichment {
     platform: string | null
     percent_complete: number | null
     rating_key: number | null
+    linked: boolean
+  }[]
+  events: {
+    id: number
+    title: string
+    event_type: string
+    event_date: string
+    end_date: string | null
+    place_label: string | null
     linked: boolean
   }[]
 }
@@ -326,4 +349,40 @@ export interface EntryCreatePayload {
     album?: string | null
   } | null
   immich_asset_ids: string[]
+}
+
+// Events
+export interface EventSummary {
+  id: number
+  title: string
+  event_date: string
+  end_date: string | null
+  event_type: string
+  event_type_id: number
+  notes: string | null
+  fuzzy_date: boolean
+  latitude: number | null
+  longitude: number | null
+  place_id: number | null
+  place_label: string | null
+  trip_id: number | null
+  trip_title: string | null
+}
+
+export interface EventDocument {
+  paperless_id: number
+  label: string | null
+}
+
+export interface EventDetail extends EventSummary {
+  documents: EventDocument[]
+  created_at: string
+  modified_at: string
+}
+
+export interface EventsResponse {
+  items: EventSummary[]
+  total: number
+  years: { year: number; count: number }[]
+  types: { type: string; count: number }[]
 }

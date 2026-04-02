@@ -378,3 +378,176 @@ CREATE OR REPLACE VIEW daily_summary_v AS
         AND ds.gregorian_month = entry.gregorian_month
         AND ds.gregorian_day = entry.gregorian_day
     );
+
+-- ============================================================
+-- Events
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS event_type (
+    id   serial PRIMARY KEY,
+    name text   NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS event (
+    id              serial PRIMARY KEY,
+    title           text NOT NULL,
+    event_date      date NOT NULL,
+    end_date        date,
+    event_type_id   integer NOT NULL REFERENCES event_type(id),
+    notes           text,
+    fuzzy_date      boolean NOT NULL DEFAULT false,
+    latitude        double precision,
+    longitude       double precision,
+    place_id        integer,
+    place_label     text,
+    trip_id         integer REFERENCES trip(id) ON DELETE SET NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    modified_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_event_date ON event (event_date);
+CREATE INDEX IF NOT EXISTS idx_event_type_id ON event (event_type_id);
+CREATE INDEX IF NOT EXISTS idx_event_trip ON event (trip_id) WHERE trip_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS event_document (
+    event_id        integer NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+    paperless_id    integer NOT NULL,
+    label           text,
+    PRIMARY KEY (event_id, paperless_id)
+);
+
+CREATE TABLE IF NOT EXISTS entry_event (
+    entry_id    integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    event_id    integer NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+    PRIMARY KEY (entry_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_event_event ON entry_event (event_id);
+
+-- ============================================================
+-- Flights (migrated from mylocation)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS flight (
+    id                   serial PRIMARY KEY,
+    date                 date NOT NULL,
+    flight_number        text,
+    dep_airport          text NOT NULL,
+    dep_airport_name     text,
+    dep_icao             text,
+    arr_airport          text NOT NULL,
+    arr_airport_name     text,
+    arr_icao             text,
+    dep_time             time,
+    arr_time             time,
+    duration             interval,
+    airline              text,
+    airline_code         text,
+    aircraft_type        text,
+    aircraft_code        text,
+    registration         text,
+    seat_number          text,
+    seat_type            integer,
+    flight_class         integer,
+    flight_reason        integer,
+    notes                text,
+    source               text,
+    gps_matched          boolean DEFAULT false,
+    dep_lat              double precision,
+    dep_lon              double precision,
+    arr_lat              double precision,
+    arr_lon              double precision,
+    distance_km          integer,
+    gate_origin          text,
+    gate_destination     text,
+    terminal_origin      text,
+    terminal_destination text,
+    baggage_claim        text,
+    departure_delay      integer,
+    arrival_delay        integer,
+    route_distance       integer,
+    runway_origin        text,
+    runway_destination   text,
+    codeshares           text,
+    is_route             boolean DEFAULT false,
+    times_flown          integer
+);
+CREATE INDEX IF NOT EXISTS idx_flight_date ON flight (date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_flight_dedup ON flight (date, dep_airport, arr_airport, COALESCE(flight_number, ''));
+
+CREATE TABLE IF NOT EXISTS ga_flight (
+    id                  serial PRIMARY KEY,
+    date                date NOT NULL,
+    aircraft_type       text,
+    registration        text,
+    captain             text,
+    operating_capacity  text,
+    dep_airport         text,
+    arr_airport         text,
+    dep_time            time,
+    arr_time            time,
+    hours_sep_pic       numeric,
+    hours_sep_dual      numeric,
+    hours_mep_pic       numeric,
+    hours_mep_dual      numeric,
+    hours_pic_3         numeric,
+    hours_dual_3        numeric,
+    hours_pic_4         numeric,
+    hours_dual_4        numeric,
+    hours_instrument    numeric,
+    hours_total         numeric,
+    instructor          text,
+    exercise            text,
+    comments            text,
+    hours_as_instructor numeric,
+    hours_simulator     numeric
+);
+CREATE INDEX IF NOT EXISTS idx_ga_flight_date ON ga_flight (date);
+
+CREATE TABLE IF NOT EXISTS rail_journey (
+    id            serial PRIMARY KEY,
+    date          date NOT NULL,
+    time          time,
+    from_station  text NOT NULL,
+    from_code     text,
+    to_station    text NOT NULL,
+    to_code       text,
+    operator      text,
+    ticket_type   text,
+    direction     text,
+    reference     text,
+    train         text,
+    via           text,
+    price         numeric,
+    currency      text,
+    from_lat      double precision,
+    from_lon      double precision,
+    to_lat        double precision,
+    to_lon        double precision,
+    source        text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rail_journey_date ON rail_journey (date);
+
+CREATE TABLE IF NOT EXISTS entry_rail_journey (
+    entry_id          integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    rail_journey_id   integer NOT NULL REFERENCES rail_journey(id) ON DELETE CASCADE,
+    PRIMARY KEY (entry_id, rail_journey_id)
+);
+
+CREATE TABLE IF NOT EXISTS skiing_day (
+    id              serial PRIMARY KEY,
+    date            date NOT NULL,
+    location        text,
+    duration_hours  numeric,
+    distance_km     numeric,
+    vertical_up_m   integer,
+    vertical_down_m integer,
+    max_speed_kmh   numeric,
+    avg_speed_kmh   numeric,
+    max_altitude_m  integer,
+    min_altitude_m  integer,
+    num_runs        integer,
+    num_lifts       integer,
+    platform        text,
+    season          text,
+    track_id        text
+);
+CREATE INDEX IF NOT EXISTS idx_skiing_day_date ON skiing_day (date);

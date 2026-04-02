@@ -9,6 +9,11 @@ import Stats from './pages/Stats'
 import MapView from './pages/MapView'
 import Trips from './pages/Trips'
 import TripDetail from './pages/TripDetail'
+import Events from './pages/Events'
+import EventDetail from './pages/EventDetail'
+import EventTypes from './pages/EventTypes'
+import Places from './pages/Places'
+import Travel from './pages/Travel'
 
 export default function App() {
   return (
@@ -24,6 +29,11 @@ export default function App() {
           <Route path="/map" element={<MapView />} />
           <Route path="/trips" element={<Trips />} />
           <Route path="/trip/:id" element={<TripDetail />} />
+          <Route path="/events" element={<Events />} />
+          <Route path="/event/:id" element={<EventDetail />} />
+          <Route path="/event-types" element={<EventTypes />} />
+          <Route path="/travel" element={<Travel />} />
+          <Route path="/places" element={<Places />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="*" element={<div className="text-text-secondary">Page not found</div>} />
         </Routes>

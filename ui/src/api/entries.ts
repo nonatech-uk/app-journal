@@ -102,6 +102,21 @@ export function unlinkFlight(entryId: number, flightId: number, flightType = 'co
   })
 }
 
+export function linkRailJourney(entryId: number, railJourneyId: number): Promise<{ linked: boolean }> {
+  return apiFetch(`/entries/${entryId}/rail-journeys`, {
+    method: 'POST',
+    body: JSON.stringify({ rail_journey_id: railJourneyId }),
+  })
+}
+
+export function unlinkRailJourney(entryId: number, railJourneyId: number): Promise<{ unlinked: boolean }> {
+  return apiFetch(`/entries/${entryId}/rail-journeys/${railJourneyId}`, { method: 'DELETE' })
+}
+
+export function linkAllRailJourneys(entryId: number): Promise<{ linked: number }> {
+  return apiFetch(`/entries/${entryId}/rail-journeys/all`, { method: 'POST' })
+}
+
 export function linkSkiingDay(entryId: number, skiingDayId: number, location?: string): Promise<{ linked: boolean; activity_id?: number }> {
   return apiFetch(`/entries/${entryId}/activities/skiing`, {
     method: 'POST',
@@ -166,6 +181,21 @@ export function createPerson(name: string): Promise<{ id: number; name: string }
     method: 'POST',
     body: JSON.stringify({ name }),
   })
+}
+
+export function linkEvent(entryId: number, eventId: number): Promise<{ linked: boolean }> {
+  return apiFetch(`/entries/${entryId}/events`, {
+    method: 'POST',
+    body: JSON.stringify({ event_id: eventId }),
+  })
+}
+
+export function unlinkEvent(entryId: number, eventId: number): Promise<{ unlinked: boolean }> {
+  return apiFetch(`/entries/${entryId}/events/${eventId}`, { method: 'DELETE' })
+}
+
+export function linkAllEvents(entryId: number): Promise<{ linked: number }> {
+  return apiFetch(`/entries/${entryId}/events/all`, { method: 'POST' })
 }
 
 export function deleteAttachment(entryId: number, attachmentId: number): Promise<{ deleted: boolean }> {

@@ -15,6 +15,7 @@ from src.api.models import (
     ChildEntrySummary,
     EntryCreate,
     EntryDetail,
+    EntryEventOut,
     EntryList,
     EntrySummary,
     EntryUpdate,
@@ -332,6 +333,20 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
                 attachment_count=c[6],
             ))
 
+    # Linked events
+    cur.execute("""
+        SELECT ev.id, ev.title, et.name AS event_type, ev.event_date, ev.end_date, ev.place_label
+        FROM entry_event ee
+        JOIN event ev ON ev.id = ee.event_id
+        JOIN event_type et ON et.id = ev.event_type_id
+        WHERE ee.entry_id = %s
+        ORDER BY ev.event_date
+    """, (entry_id,))
+    events = [
+        EntryEventOut(id=r[0], title=r[1], event_type=r[2], event_date=r[3], end_date=r[4], place_label=r[5])
+        for r in cur.fetchall()
+    ]
+
     # Adjacent entries (prev/next by date, parent-level only)
     created_at = row[4]
     cur.execute(
@@ -358,7 +373,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         prev_entry_id=prev_row[0] if prev_row else None,
         next_entry_id=next_row[0] if next_row else None,
         location=loc, locations=locations, weather=weather, weathers=weathers, music=music, music_tracks=music_tracks,
-        tags=tags, attachments=attachments, children=children,
+        tags=tags, attachments=attachments, events=events, children=children,
     )
 
 
