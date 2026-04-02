@@ -3,10 +3,18 @@
 import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from config.settings import settings
-from src.api.deps import get_conn, get_current_user
+from src.api.deps import get_conn, get_current_user, require_admin
+from src.services.flights.images import (
+    aircraft_image_path,
+    has_aircraft_image,
+    has_route_image,
+    route_image_path,
+    schedule_prefetch,
+)
 
 router = APIRouter()
 
@@ -92,7 +100,8 @@ def list_flights(
         SELECT id, date, flight_number, dep_airport, dep_airport_name,
                arr_airport, arr_airport_name, dep_time, arr_time, duration,
                airline, aircraft_type, registration, seat_number,
-               flight_class, distance_km, source
+               flight_class, distance_km, source,
+               dep_lat, dep_lon, arr_lat, arr_lon
         FROM flight
         {where}
         ORDER BY date DESC, dep_time NULLS LAST
@@ -100,6 +109,12 @@ def list_flights(
     """, params)
     cols = [desc[0] for desc in cur.description]
     items = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    # Add image availability flags and schedule prefetch
+    for item in items:
+        item["has_route_image"] = has_route_image(item["dep_airport"], item["arr_airport"])
+        item["has_aircraft_image"] = has_aircraft_image(item.get("registration"))
+    schedule_prefetch(items)
 
     cur.execute(f"SELECT count(*) FROM flight {where}", params)
     total = cur.fetchone()[0]
@@ -130,7 +145,10 @@ def get_flight(flight_id: int, conn=Depends(get_conn), _user=Depends(get_current
     if not row:
         raise HTTPException(404, "Flight not found")
     cols = [desc[0] for desc in cur.description]
-    return dict(zip(cols, row))
+    flight = dict(zip(cols, row))
+    flight["has_route_image"] = has_route_image(flight.get("dep_airport"), flight.get("arr_airport"))
+    flight["has_aircraft_image"] = has_aircraft_image(flight.get("registration"))
+    return flight
 
 
 # ---------------------------------------------------------------------------
@@ -238,3 +256,61 @@ def get_rail_journey(journey_id: int, conn=Depends(get_conn), _user=Depends(get_
         raise HTTPException(404, "Rail journey not found")
     cols = [desc[0] for desc in cur.description]
     return dict(zip(cols, row))
+
+
+# ---------------------------------------------------------------------------
+# Flight Images
+# ---------------------------------------------------------------------------
+
+@router.get("/flights/{flight_id}/images/{image_type}/{size}")
+def get_flight_image(
+    flight_id: int,
+    image_type: str,
+    size: str,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    if image_type not in ("route", "aircraft"):
+        raise HTTPException(400, "image_type must be 'route' or 'aircraft'")
+    if size not in ("thumb", "full"):
+        raise HTTPException(400, "size must be 'thumb' or 'full'")
+
+    cur = conn.cursor()
+    cur.execute("SELECT dep_airport, arr_airport, registration FROM flight WHERE id = %s", (flight_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Flight not found")
+
+    if image_type == "route":
+        path = route_image_path(row[0], row[1], size)
+        media_type = "image/png"
+    else:
+        if not row[2]:
+            raise HTTPException(404, "No registration for this flight")
+        path = aircraft_image_path(row[2], size)
+        media_type = "image/jpeg"
+
+    if not path.exists():
+        raise HTTPException(404, "Image not yet available",
+                            headers={"Cache-Control": "no-store"})
+
+    return FileResponse(path, media_type=media_type,
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.post("/flights/images/prefetch-all")
+def prefetch_all_images(
+    conn=Depends(get_conn),
+    _=Depends(require_admin),
+):
+    """Trigger background prefetch for all flights missing images."""
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, dep_airport, arr_airport, dep_lat, dep_lon,
+               arr_lat, arr_lon, registration
+        FROM flight
+    """)
+    cols = [desc[0] for desc in cur.description]
+    batch = [dict(zip(cols, r)) for r in cur.fetchall()]
+    schedule_prefetch(batch)
+    return {"status": "prefetch_scheduled", "count": len(batch)}
