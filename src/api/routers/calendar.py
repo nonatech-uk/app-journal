@@ -84,11 +84,17 @@ def on_this_day(
             LIMIT 1
         ) m ON true
         WHERE e.gregorian_month = %s AND e.gregorian_day = %s
+              AND e.parent_entry_id IS NULL
         ORDER BY e.created_at DESC
     """, (m, d))
 
+    import random
+    all_rows = cur.fetchall()
+    if len(all_rows) > 3:
+        all_rows = sorted(random.sample(all_rows, 3), key=lambda r: r[4], reverse=True)
+
     results = []
-    for r in cur.fetchall():
+    for r in all_rows:
         text = r[6] or ""
         preview = text[:200].replace("\n", " ").strip() if text else None
 

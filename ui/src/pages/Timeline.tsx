@@ -89,7 +89,7 @@ export default function Timeline() {
           <div className="space-y-2">
             {(() => {
               let lastYear: number | null = null
-              return onThisDay.slice(0, 5).map((otd: OnThisDayEntry) => {
+              return onThisDay.map((otd: OnThisDayEntry) => {
                 const showYear = otd.year !== lastYear
                 lastYear = otd.year
                 return (
