@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import AppSwitcher from './AppSwitcher'
 
 const NAV_ITEMS = [
   { to: '/timeline', label: 'Timeline', icon: '◫' },
@@ -22,8 +23,9 @@ export default function Sidebar() {
 
   return (
     <aside className="w-52 bg-bg-secondary border-r border-border flex flex-col shrink-0">
-      <div className="p-4 border-b border-border">
+      <div className="p-4 border-b border-border flex items-center justify-between">
         <h1 className="text-lg font-bold text-accent">Journal</h1>
+        <AppSwitcher />
       </div>
       <div className="p-2">
         <button
