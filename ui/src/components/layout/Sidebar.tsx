@@ -9,7 +9,9 @@ const NAV_ITEMS = [
   { to: '/trips', label: 'Trips', icon: '◇' },
   { to: '/events', label: 'Events', icon: '◉' },
   { to: '/travel', label: 'Travel', icon: '▷' },
+  { to: '/activities', label: 'Activities', icon: '◆' },
   { to: '/event-types', label: 'Event Types', icon: '◔' },
+  { to: '/activity-types', label: 'Activity Types', icon: '◬' },
   { to: '/places', label: 'Places', icon: '◎' },
   { to: '/stats', label: 'Stats', icon: '⊞' },
 ]

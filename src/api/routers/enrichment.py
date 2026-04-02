@@ -256,6 +256,27 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
         s["linked"] = s["id"] in linked_skiing
     result["skiing"] = skiing_rows
 
+    # Activities (same day — local table, excludes skiing which has its own section)
+    cur.execute("""
+        SELECT id, activity_type, title, date, start_time, distance_km,
+               duration_seconds, moving_time_seconds, elevation_gain,
+               avg_speed_kmh, avg_heartrate, calories, source, strava_activity_id
+        FROM activity
+        WHERE date = %s AND activity_type != 'skiing'
+        ORDER BY start_time NULLS LAST
+    """, (entry_date_val,))
+    act_cols = [desc[0] for desc in cur.description]
+    activity_rows = [dict(zip(act_cols, r)) for r in cur.fetchall()]
+
+    cur.execute(
+        "SELECT id FROM activity WHERE entry_id = %s AND skiing_day_id IS NULL",
+        (entry_id,),
+    )
+    linked_activity_ids = {r[0] for r in cur.fetchall()}
+    for a in activity_rows:
+        a["linked"] = a["id"] in linked_activity_ids
+    result["activities"] = activity_rows
+
     # Tautulli watches (same day, movies + episodes only)
     if settings.tautulli_api_key:
         try:

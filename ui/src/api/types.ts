@@ -102,6 +102,21 @@ export interface EntryDetail extends EntrySummary {
   music_tracks: MusicTrack[]
   attachments: Attachment[]
   events: { id: number; title: string; event_type: string; event_date: string; end_date: string | null; place_label: string | null }[]
+  activities: {
+    id: number
+    activity_type: string
+    title: string | null
+    activity_date: string | null
+    start_time: string | null
+    distance_km: number | null
+    duration_seconds: number | null
+    moving_time_seconds: number | null
+    elevation_gain: number | null
+    source: string
+    strava_activity_id: number | null
+    has_track: boolean
+    track_svg_url: string | null
+  }[]
 }
 
 export interface EntryList {
@@ -214,6 +229,24 @@ export interface EnrichmentSkiing {
   linked: boolean
 }
 
+export interface EnrichmentActivity {
+  id: number
+  activity_type: string
+  title: string | null
+  date: string | null
+  start_time: string | null
+  distance_km: number | null
+  duration_seconds: number | null
+  moving_time_seconds: number | null
+  elevation_gain: number | null
+  avg_speed_kmh: number | null
+  avg_heartrate: number | null
+  calories: number | null
+  source: string
+  strava_activity_id: number | null
+  linked: boolean
+}
+
 export interface Enrichment {
   scrobbles: { id: number; artist: string; track: string; album: string; listened_at: string; linked: boolean }[]
   transactions: { merchant_name: string; amount: number; currency: string; posted_at: string; category: string }[]
@@ -243,6 +276,7 @@ export interface Enrichment {
     linked: boolean
   }[]
   skiing: EnrichmentSkiing[]
+  activities: EnrichmentActivity[]
   watches: {
     title: string
     media_type: string

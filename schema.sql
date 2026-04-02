@@ -551,3 +551,55 @@ CREATE TABLE IF NOT EXISTS skiing_day (
     track_id        text
 );
 CREATE INDEX IF NOT EXISTS idx_skiing_day_date ON skiing_day (date);
+
+-- ---------------------------------------------------------------------------
+-- Activity types — lookup table for activity categories
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS activity_type (
+    id serial PRIMARY KEY,
+    name text NOT NULL UNIQUE
+);
+INSERT INTO activity_type (name) VALUES
+    ('walking'), ('running'), ('cycling'), ('swimming'), ('hiking'), ('skiing')
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Activity table extensions — support standalone activities + Strava sync
+-- ---------------------------------------------------------------------------
+
+-- Make entry_id nullable (Strava activities exist before journal linking)
+DO $$ BEGIN
+    ALTER TABLE activity ALTER COLUMN entry_id DROP NOT NULL;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+-- Add activity_type_id FK (structured replacement for free-text activity_type)
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS activity_type_id integer REFERENCES activity_type(id);
+
+-- Add Strava cross-reference
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS strava_activity_id bigint UNIQUE;
+
+-- Add useful non-GPS fields from Strava
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS date date;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS start_time time;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS moving_time_seconds integer;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS avg_speed_kmh float;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS max_speed_kmh float;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS avg_heartrate float;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS max_heartrate float;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS calories float;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';  -- 'manual' | 'strava'
+
+CREATE INDEX IF NOT EXISTS idx_activity_date ON activity (date);
+CREATE INDEX IF NOT EXISTS idx_activity_strava_id ON activity (strava_activity_id) WHERE strava_activity_id IS NOT NULL;
+
+-- Apple Health import support
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS apple_health_id text UNIQUE;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS steps integer;
+CREATE INDEX IF NOT EXISTS idx_activity_apple_health_id
+    ON activity (apple_health_id) WHERE apple_health_id IS NOT NULL;
+
+-- Backfill activity_type_id from free-text activity_type column
+UPDATE activity a SET activity_type_id = at.id
+FROM activity_type at WHERE lower(a.activity_type) = at.name
+AND a.activity_type_id IS NULL;

@@ -13,6 +13,7 @@ from src.api.deps import get_conn, get_current_user, require_admin
 from src.api.models import (
     AttachmentOut,
     ChildEntrySummary,
+    EntryActivityOut,
     EntryCreate,
     EntryDetail,
     EntryEventOut,
@@ -347,6 +348,28 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         for r in cur.fetchall()
     ]
 
+    # Linked activities
+    cur.execute("""
+        SELECT id, activity_type, title, date, start_time, distance_km,
+               duration_seconds, moving_time_seconds, elevation_gain,
+               source, strava_activity_id
+        FROM activity
+        WHERE entry_id = %s AND skiing_day_id IS NULL
+        ORDER BY start_time NULLS LAST
+    """, (entry_id,))
+    locs_base = settings.mylocation_public_url.rstrip("/")
+    activities = [
+        EntryActivityOut(
+            id=r[0], activity_type=r[1], title=r[2], activity_date=r[3],
+            start_time=str(r[4])[:5] if r[4] else None,
+            distance_km=r[5], duration_seconds=r[6], moving_time_seconds=r[7],
+            elevation_gain=r[8], source=r[9], strava_activity_id=r[10],
+            has_track=r[10] is not None,
+            track_svg_url=f"{locs_base}/api/v1/gps/activity-track-svg?strava_id={r[10]}" if r[10] else None,
+        )
+        for r in cur.fetchall()
+    ]
+
     # Adjacent entries (prev/next by date, parent-level only)
     created_at = row[4]
     cur.execute(
@@ -373,7 +396,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         prev_entry_id=prev_row[0] if prev_row else None,
         next_entry_id=next_row[0] if next_row else None,
         location=loc, locations=locations, weather=weather, weathers=weathers, music=music, music_tracks=music_tracks,
-        tags=tags, attachments=attachments, events=events, children=children,
+        tags=tags, attachments=attachments, events=events, activities=activities, children=children,
     )
 
 

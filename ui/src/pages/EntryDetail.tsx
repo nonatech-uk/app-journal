@@ -729,6 +729,51 @@ export default function EntryDetail() {
             </div>
           )}
 
+          {/* Linked Activities */}
+          {entry.activities && entry.activities.length > 0 && (
+            <div className="bg-bg-card border border-border rounded-lg p-3">
+              <h4 className="text-xs font-medium text-text-secondary mb-1">
+                Activities ({entry.activities.length})
+              </h4>
+              <div className="space-y-2">
+                {entry.activities.map((a) => (
+                  <div
+                    key={a.id}
+                    className="cursor-pointer hover:bg-bg-hover rounded px-1 -mx-1 py-1"
+                    onClick={() => navigate(`/activity/${a.id}`)}
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-secondary text-text-secondary shrink-0">
+                        {a.activity_type.charAt(0).toUpperCase() + a.activity_type.slice(1)}
+                      </span>
+                      <span className="text-text-primary font-medium truncate">{a.title || a.activity_type}</span>
+                      <span className="text-xs text-text-secondary ml-auto shrink-0 flex items-center gap-2">
+                        {(a.moving_time_seconds ?? a.duration_seconds) != null && (() => {
+                          const s = a.moving_time_seconds ?? a.duration_seconds ?? 0
+                          const h = Math.floor(s / 3600)
+                          const m = Math.floor((s % 3600) / 60)
+                          return h > 0 ? `${h}h ${m}m` : `${m}m`
+                        })()}
+                        {a.distance_km != null && (
+                          <span>{a.distance_km < 10 ? a.distance_km.toFixed(1) : Math.round(a.distance_km)} km</span>
+                        )}
+                        {a.elevation_gain != null && <span>+{Math.round(a.elevation_gain)}m</span>}
+                      </span>
+                    </div>
+                    {a.track_svg_url && (
+                      <img
+                        src={a.track_svg_url}
+                        alt={`Track for ${a.title || a.activity_type}`}
+                        className="w-full h-20 mt-1.5 rounded border border-border object-contain"
+                        loading="lazy"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Enrichment — Scrobbles (only show if there are unlinked ones to import) */}
           {enrichment?.scrobbles && enrichment.scrobbles.some(s => !s.linked) && (
             <div className="bg-bg-card border border-border rounded-lg p-3">
@@ -878,6 +923,67 @@ export default function EntryDetail() {
                       {s.max_speed_kmh && <span>{s.max_speed_kmh} km/h max</span>}
                       {s.max_altitude_m && <span>{s.max_altitude_m.toLocaleString()}m peak</span>}
                       {s.duration_hours && <span>{s.duration_hours}h</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Enrichment — Activities */}
+          {enrichment?.activities && enrichment.activities.length > 0 && (
+            <div className="bg-bg-card border border-border rounded-lg p-3">
+              <h4 className="text-xs font-medium text-text-secondary mb-1">
+                Activities ({enrichment.activities.length})
+              </h4>
+              <div className="space-y-2">
+                {enrichment.activities.map((a) => (
+                  <div key={a.id} className="text-xs">
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium text-text-primary">{a.title || a.activity_type}</span>
+                      <span className="text-text-secondary">
+                        {a.activity_type.charAt(0).toUpperCase() + a.activity_type.slice(1)}
+                      </span>
+                      {a.source === 'strava' && (
+                        <span className="text-[10px] px-1 py-0.5 rounded bg-orange-500/20 text-orange-400">strava</span>
+                      )}
+                      {user?.role === 'admin' && (
+                        <button
+                          className={`ml-auto text-xs px-1.5 py-0.5 rounded ${
+                            a.linked
+                              ? 'bg-accent/20 text-accent'
+                              : 'bg-bg-secondary text-text-secondary hover:bg-accent/10 hover:text-accent'
+                          }`}
+                          onClick={async () => {
+                            if (!entryId) return
+                            if (a.linked) {
+                              const { unlinkActivity: unlinkAct } = await import('../api/activities')
+                              await unlinkAct(entryId, a.id)
+                            } else {
+                              const { linkActivity: linkAct } = await import('../api/activities')
+                              await linkAct(entryId, a.id)
+                            }
+                            queryClient.invalidateQueries({ queryKey: ['enrichment', entryId] })
+                          }}
+                        >
+                          {a.linked ? '✓' : 'Link'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-text-secondary grid grid-cols-2 gap-x-2 mt-0.5">
+                      {a.distance_km != null && <span>{a.distance_km < 10 ? a.distance_km.toFixed(1) : Math.round(a.distance_km)} km</span>}
+                      {(a.moving_time_seconds ?? a.duration_seconds) != null && (
+                        <span>
+                          {(() => {
+                            const s = a.moving_time_seconds ?? a.duration_seconds ?? 0
+                            const h = Math.floor(s / 3600)
+                            const m = Math.floor((s % 3600) / 60)
+                            return h > 0 ? `${h}h ${m}m` : `${m}m`
+                          })()}
+                        </span>
+                      )}
+                      {a.elevation_gain != null && <span>+{Math.round(a.elevation_gain)}m</span>}
+                      {a.avg_heartrate != null && <span>{Math.round(a.avg_heartrate)} bpm</span>}
                     </div>
                   </div>
                 ))}

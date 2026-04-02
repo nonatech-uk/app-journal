@@ -14,6 +14,9 @@ import EventDetail from './pages/EventDetail'
 import EventTypes from './pages/EventTypes'
 import Places from './pages/Places'
 import Travel from './pages/Travel'
+import ActivityTypes from './pages/ActivityTypes'
+import Activities from './pages/Activities'
+import ActivityDetail from './pages/ActivityDetail'
 
 export default function App() {
   return (
@@ -33,6 +36,9 @@ export default function App() {
           <Route path="/event/:id" element={<EventDetail />} />
           <Route path="/event-types" element={<EventTypes />} />
           <Route path="/travel" element={<Travel />} />
+          <Route path="/activities" element={<Activities />} />
+          <Route path="/activity/:id" element={<ActivityDetail />} />
+          <Route path="/activity-types" element={<ActivityTypes />} />
           <Route path="/places" element={<Places />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="*" element={<div className="text-text-secondary">Page not found</div>} />

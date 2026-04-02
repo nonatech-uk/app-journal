@@ -87,12 +87,19 @@ export default function Timeline() {
             On This Day ({onThisDay.length} {onThisDay.length === 1 ? 'entry' : 'entries'})
           </h3>
           <div className="space-y-2">
-            {onThisDay.slice(0, 3).map((otd: OnThisDayEntry) => (
-              <div key={otd.entry.id} className="flex items-center gap-2">
-                <span className="text-xs font-medium text-accent w-10">{otd.year}</span>
-                <EntryCard entry={otd.entry} />
-              </div>
-            ))}
+            {(() => {
+              let lastYear: number | null = null
+              return onThisDay.slice(0, 5).map((otd: OnThisDayEntry) => {
+                const showYear = otd.year !== lastYear
+                lastYear = otd.year
+                return (
+                  <div key={otd.entry.id} className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-accent w-10">{showYear ? otd.year : ''}</span>
+                    <EntryCard entry={otd.entry} />
+                  </div>
+                )
+              })
+            })()}
           </div>
         </div>
       )}

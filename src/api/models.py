@@ -123,6 +123,22 @@ class EntryEventOut(BaseModel):
     place_label: str | None = None
 
 
+class EntryActivityOut(BaseModel):
+    id: int
+    activity_type: str
+    title: str | None = None
+    activity_date: date | None = None
+    start_time: str | None = None
+    distance_km: float | None = None
+    duration_seconds: int | None = None
+    moving_time_seconds: int | None = None
+    elevation_gain: float | None = None
+    source: str = "manual"
+    strava_activity_id: int | None = None
+    has_track: bool = False
+    track_svg_url: str | None = None
+
+
 class EntryDetail(BaseModel):
     id: int
     uuid: str
@@ -157,6 +173,7 @@ class EntryDetail(BaseModel):
     tags: list[str] = []
     attachments: list[AttachmentOut] = []
     events: list[EntryEventOut] = []
+    activities: list[EntryActivityOut] = []
     children: list[ChildEntrySummary] = []
 
 
