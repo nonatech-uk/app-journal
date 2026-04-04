@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from config.settings import settings
 from src.api.deps import close_pool, init_pool
 from src.api.routers import activities, auth, calendar, context, daily_summary, enrichment, entries, events, flights, immich, journals, map, media, people, places, scrobbles, search, stats, tags, transport, trips, watches
+from src.api.usage_tracker import init_usage_tracker, shutdown_usage_tracker, track_usage_middleware, usage_pageview_router
 
 STATIC_DIR = Path(_project_root) / "static"
 
@@ -23,7 +24,9 @@ STATIC_DIR = Path(_project_root) / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_pool()
+    init_usage_tracker("journal", settings.usage_dsn)
     yield
+    shutdown_usage_tracker()
     close_pool()
 
 
@@ -41,6 +44,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.middleware("http")(track_usage_middleware)
 
 # Mount routers
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
@@ -65,6 +70,7 @@ app.include_router(daily_summary.router, prefix="/api/v1", tags=["daily_summary"
 app.include_router(places.router, prefix="/api/v1", tags=["places"])
 app.include_router(events.router, prefix="/api/v1", tags=["events"])
 app.include_router(transport.router, prefix="/api/v1", tags=["transport"])
+app.include_router(usage_pageview_router, prefix="/api/v1")
 
 
 @app.get("/health")

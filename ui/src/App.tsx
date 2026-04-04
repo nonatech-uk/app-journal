@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Shell from './components/layout/Shell'
+import { usePageTracking } from './hooks/usePageTracking'
 import Timeline from './pages/Timeline'
 import EntryDetail from './pages/EntryDetail'
 import NewEntry from './pages/NewEntry'
@@ -21,6 +22,7 @@ import ActivityDetail from './pages/ActivityDetail'
 export default function App() {
   return (
     <BrowserRouter>
+      <PageTracker />
       <Shell>
         <Routes>
           <Route path="/" element={<Navigate to="/timeline" replace />} />
@@ -46,4 +48,9 @@ export default function App() {
       </Shell>
     </BrowserRouter>
   )
+}
+
+function PageTracker() {
+  usePageTracking()
+  return null
 }
