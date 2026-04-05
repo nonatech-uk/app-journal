@@ -1,6 +1,7 @@
 """Daily summary enrichment — consolidate structured data and top up from sources."""
 
 import logging
+import uuid as uuid_mod
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -367,7 +368,85 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
         cur, canonical_entry_id, target_date,
     )
 
+    # Immich photos
+    if settings.immich_api_key:
+        stats["photos"] = _enrich_immich_photos(
+            cur, settings, canonical_entry_id, target_date,
+        )
+
     return stats
+
+
+def _enrich_immich_photos(
+    cur, settings, entry_id: int, target_date: date, max_photos: int = 6,
+) -> int:
+    """Fetch photos from Immich for the target date and link as attachments."""
+    # Check existing Immich attachments to avoid duplicates
+    cur.execute(
+        "SELECT immich_asset_id FROM attachment WHERE entry_id = %s AND immich_asset_id IS NOT NULL",
+        (entry_id,),
+    )
+    existing_ids = {r[0] for r in cur.fetchall()}
+
+    try:
+        resp = httpx.post(
+            f"{settings.immich_url}/api/search/metadata",
+            json={
+                "takenAfter": f"{target_date}T00:00:00.000Z",
+                "takenBefore": f"{target_date}T23:59:59.999Z",
+                "order": "asc",
+                "size": 200,
+            },
+            headers={"x-api-key": settings.immich_api_key},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        assets = resp.json().get("assets", {}).get("items", [])
+    except Exception as e:
+        log.warning("Immich search failed for %s: %s", target_date, e)
+        return 0
+
+    if not assets:
+        return 0
+
+    # Select representative photos (prefer images, spread across the day)
+    images = [a for a in assets if a.get("type", "").upper() == "IMAGE"]
+    if not images:
+        images = assets
+    all_sorted = sorted(images, key=lambda a: a.get("fileCreatedAt", ""))
+    if len(all_sorted) <= max_photos:
+        selected = all_sorted
+    else:
+        step = max(1, len(all_sorted) // max_photos)
+        selected = [all_sorted[i] for i in range(0, len(all_sorted), step)][:max_photos]
+
+    inserted = 0
+    for asset in selected:
+        asset_id = asset.get("id")
+        if not asset_id or asset_id in existing_ids:
+            continue
+        att_uuid = str(uuid_mod.uuid4()).upper()
+        exif = asset.get("exifInfo", {})
+        original_name = asset.get("originalFileName", "")
+        ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else "jpeg"
+        if ext in ("jpg", "heic"):
+            ext = "jpeg"
+        cur.execute(
+            """INSERT INTO attachment
+               (entry_id, uuid, type, filename, width, height,
+                camera_make, camera_model, lens_model, iso, f_number,
+                focal_length, date, immich_asset_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT DO NOTHING""",
+            (entry_id, att_uuid, ext, original_name,
+             exif.get("exifImageWidth"), exif.get("exifImageHeight"),
+             exif.get("make"), exif.get("model"), exif.get("lensModel"),
+             exif.get("iso"), str(exif["fNumber"]) if exif.get("fNumber") else None,
+             str(exif["focalLength"]) if exif.get("focalLength") else None,
+             asset.get("fileCreatedAt"), asset_id),
+        )
+        inserted += cur.rowcount
+    return inserted
 
 
 def _place_lookup(mylocation_dsn: str, lat: float, lon: float, dt: date) -> dict:
