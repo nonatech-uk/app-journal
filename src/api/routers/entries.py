@@ -146,7 +146,9 @@ def list_entries(
     _user=Depends(get_current_user),
 ):
     cur = conn.cursor()
-    conditions = ["e.entry_type != 'daily_summary'"]
+    conditions = [
+        "(e.entry_type != 'daily_summary' OR NOT EXISTS (SELECT 1 FROM entry c WHERE c.parent_entry_id = e.id))",
+    ]
     params: dict = {"limit": limit + 1}
 
     if cursor:
