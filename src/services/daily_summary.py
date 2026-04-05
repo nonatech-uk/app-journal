@@ -190,7 +190,7 @@ def consolidate_structured_data(conn, summary_id: int, child_ids: list[int]) -> 
     return stats
 
 
-def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: date) -> dict:
+def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: date, dry_run: bool = False) -> dict:
     """Top up structured data from authoritative sources for a single day.
 
     Returns counts of inserted rows per source.
@@ -371,7 +371,7 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
     # Immich photos
     if settings.immich_api_key:
         stats["photos"] = _enrich_immich_photos(
-            cur, settings, canonical_entry_id, target_date,
+            cur, settings, canonical_entry_id, target_date, dry_run=dry_run,
         )
 
     return stats
@@ -379,9 +379,12 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
 
 def _enrich_immich_photos(
     cur, settings, entry_id: int, target_date: date, max_photos: int = 6,
-) -> int:
-    """Fetch photos from Immich for the target date and link as attachments."""
-    # Check existing Immich attachments to avoid duplicates
+    dry_run: bool = False,
+) -> dict:
+    """Fetch photos from Immich for the target date, prune trashed, and link new attachments."""
+    result = {"pruned": 0, "added": 0}
+
+    # Check existing Immich attachments
     cur.execute(
         "SELECT immich_asset_id FROM attachment WHERE entry_id = %s AND immich_asset_id IS NOT NULL",
         (entry_id,),
@@ -404,10 +407,27 @@ def _enrich_immich_photos(
         assets = resp.json().get("assets", {}).get("items", [])
     except Exception as e:
         log.warning("Immich search failed for %s: %s", target_date, e)
-        return 0
+        return result
+
+    # Prune: existing refs not in live Immich results are trashed/deleted
+    live_ids = {a["id"] for a in assets}
+    stale_ids = existing_ids - live_ids
+    if stale_ids:
+        if dry_run:
+            log.info("DRY RUN: would prune %d stale Immich refs from entry %s: %s",
+                     len(stale_ids), entry_id, stale_ids)
+        else:
+            for stale_id in stale_ids:
+                cur.execute(
+                    "DELETE FROM attachment WHERE entry_id = %s AND immich_asset_id = %s",
+                    (entry_id, stale_id),
+                )
+        result["pruned"] = len(stale_ids)
+        # Update existing_ids to reflect pruned state
+        existing_ids -= stale_ids
 
     if not assets:
-        return 0
+        return result
 
     # Select representative photos (prefer images, spread across the day)
     images = [a for a in assets if a.get("type", "").upper() == "IMAGE"]
@@ -420,10 +440,15 @@ def _enrich_immich_photos(
         step = max(1, len(all_sorted) // max_photos)
         selected = [all_sorted[i] for i in range(0, len(all_sorted), step)][:max_photos]
 
-    inserted = 0
+    added = 0
     for asset in selected:
         asset_id = asset.get("id")
         if not asset_id or asset_id in existing_ids:
+            continue
+        if dry_run:
+            log.info("DRY RUN: would add Immich asset %s (%s) to entry %s",
+                     asset_id, asset.get("originalFileName"), entry_id)
+            added += 1
             continue
         att_uuid = str(uuid_mod.uuid4()).upper()
         exif = asset.get("exifInfo", {})
@@ -445,8 +470,9 @@ def _enrich_immich_photos(
              str(exif["focalLength"]) if exif.get("focalLength") else None,
              asset.get("fileCreatedAt"), asset_id),
         )
-        inserted += cur.rowcount
-    return inserted
+        added += cur.rowcount
+    result["added"] = added
+    return result
 
 
 def _place_lookup(mylocation_dsn: str, lat: float, lon: float, dt: date) -> dict:
@@ -599,7 +625,7 @@ def _enrich_gps_locations(
     return inserted
 
 
-def run_daily_enrichment(conn, settings, target_date: date | None = None) -> dict:
+def run_daily_enrichment(conn, settings, target_date: date | None = None, dry_run: bool = False) -> dict:
     """Run the daily enrichment job for a single date.
 
     Default: yesterday. Consolidates multi-entry days and enriches from sources.
@@ -609,6 +635,8 @@ def run_daily_enrichment(conn, settings, target_date: date | None = None) -> dic
 
     cur = conn.cursor()
     result = {"date": target_date.isoformat(), "consolidation": {}, "enrichment": {}}
+    if dry_run:
+        result["dry_run"] = True
 
     # Find explicit daily_summary entries for this date
     cur.execute(
@@ -629,9 +657,10 @@ def run_daily_enrichment(conn, settings, target_date: date | None = None) -> dic
         child_ids = [r[0] for r in cur.fetchall()]
 
         # Task A: consolidate structured data
-        result["consolidation"] = consolidate_structured_data(conn, summary_id, child_ids)
+        if not dry_run:
+            result["consolidation"] = consolidate_structured_data(conn, summary_id, child_ids)
         # Task B: enrich from sources
-        result["enrichment"] = enrich_from_sources(conn, settings, summary_id, target_date)
+        result["enrichment"] = enrich_from_sources(conn, settings, summary_id, target_date, dry_run=dry_run)
     else:
         # Single-entry day (implicit summary) — just enrich
         cur.execute(
@@ -643,19 +672,25 @@ def run_daily_enrichment(conn, settings, target_date: date | None = None) -> dic
         )
         row = cur.fetchone()
         if row:
-            result["enrichment"] = enrich_from_sources(conn, settings, row[0], target_date)
+            result["enrichment"] = enrich_from_sources(conn, settings, row[0], target_date, dry_run=dry_run)
         else:
-            # No entries — auto-create daily_summary if GPS data or events exist
-            entry_id = _auto_create_from_gps(cur, settings, target_date)
-            if not entry_id:
-                entry_id = _auto_create_for_events(cur, target_date)
-            if entry_id:
-                result["auto_created"] = True
-                result["enrichment"] = enrich_from_sources(conn, settings, entry_id, target_date)
-            else:
+            if dry_run:
                 result["skipped"] = "no entries for this date"
+            else:
+                # No entries — auto-create daily_summary if GPS data or events exist
+                entry_id = _auto_create_from_gps(cur, settings, target_date)
+                if not entry_id:
+                    entry_id = _auto_create_for_events(cur, target_date)
+                if entry_id:
+                    result["auto_created"] = True
+                    result["enrichment"] = enrich_from_sources(conn, settings, entry_id, target_date)
+                else:
+                    result["skipped"] = "no entries for this date"
 
-    conn.commit()
+    if dry_run:
+        conn.rollback()
+    else:
+        conn.commit()
     return result
 
 
