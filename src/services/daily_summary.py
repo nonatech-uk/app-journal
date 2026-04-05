@@ -353,6 +353,10 @@ def enrich_from_sources(conn, settings, canonical_entry_id: int, target_date: da
     stats["events"] = cur.rowcount
 
     # GPS start/end locations
+    mylocation_dsn = (
+        settings.cross_dsn(settings.mylocation_db_name, settings.mylocation_db_user, settings.mylocation_db_password)
+        if settings.mylocation_db_password else None
+    )
     if mylocation_dsn:
         stats["gps_locations"] = _enrich_gps_locations(
             cur, mylocation_dsn, canonical_entry_id, target_date, day_start, day_end,
