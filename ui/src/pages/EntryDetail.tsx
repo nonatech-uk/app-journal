@@ -137,6 +137,7 @@ export default function EntryDetail() {
   const cleanMarkdown = (text: string) =>
     text
       .replace(/!\[.*?\]\(dayone-moment:\/\/[^)]+\)/g, '')  // strip Day One moment refs
+      .replace(/\]\(entry:\/\/(\d+)\)/g, '](/entry/$1)')  // convert entry:// links to routes
       .replace(/\\([!\-().#>])/g, '$1')  // strip Day One escape backslashes
       .trim()
 
@@ -378,7 +379,12 @@ export default function EntryDetail() {
                 ul: ({ children }) => <ul className="list-disc pl-5 mb-2">{children}</ul>,
                 ol: ({ children }) => <ol className="list-decimal pl-5 mb-2">{children}</ol>,
                 li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer" className="text-accent underline">{children}</a>,
+                a: ({ href, children }) => {
+                  if (href?.startsWith('/entry/')) {
+                    return <a href={href} onClick={(e) => { e.preventDefault(); navigate(href) }} className="text-accent underline">{children}</a>
+                  }
+                  return <a href={href} target="_blank" rel="noreferrer" className="text-accent underline">{children}</a>
+                },
                 blockquote: ({ children }) => <blockquote className="border-l-2 border-accent/30 pl-3 italic text-text-secondary">{children}</blockquote>,
                 strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                 code: ({ children }) => <code className="bg-bg-hover px-1 py-0.5 rounded text-sm">{children}</code>,
@@ -406,7 +412,12 @@ export default function EntryDetail() {
                   components={{
                     p: ({ children }) => <p className="mb-2">{children}</p>,
                     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                    a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer" className="text-accent underline">{children}</a>,
+                    a: ({ href, children }) => {
+                      if (href?.startsWith('/entry/')) {
+                        return <a href={href} onClick={(e) => { e.preventDefault(); navigate(href) }} className="text-accent underline">{children}</a>
+                      }
+                      return <a href={href} target="_blank" rel="noreferrer" className="text-accent underline">{children}</a>
+                    },
                   }}
                 >
                   {entry.retrospective}
