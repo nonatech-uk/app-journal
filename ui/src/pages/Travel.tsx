@@ -1,8 +1,14 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchFlights, fetchGaFlights, fetchRailJourneys } from '../api/transport'
+import FlightImage from '../components/FlightImage'
 
 type Tab = 'flights' | 'ga' | 'rail'
+
+function hasRegisterLookup(reg: string | null | undefined): boolean {
+  return !!reg
+}
 
 function formatDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', {
@@ -65,9 +71,11 @@ function FlightsTab() {
             <tr className="border-b border-border bg-bg-secondary">
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Date</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Route</th>
+              <th className="px-3 py-2 text-xs text-text-secondary font-medium">Map</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Flight</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Airline</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Aircraft</th>
+              <th className="px-3 py-2 text-xs text-text-secondary font-medium">Photo</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Time</th>
               <th className="text-right px-3 py-2 text-xs text-text-secondary font-medium">Dist</th>
             </tr>
@@ -79,9 +87,23 @@ function FlightsTab() {
                 <td className="px-3 py-2 font-medium text-text-primary">
                   {f.dep_airport} → {f.arr_airport}
                 </td>
+                <td className="px-3 py-2">
+                  <FlightImage flightId={f.id} type="route" hasImage={f.has_route_image ?? false} alt={`${f.dep_airport}–${f.arr_airport}`} />
+                </td>
                 <td className="px-3 py-2 text-text-secondary">{f.flight_number || '—'}</td>
                 <td className="px-3 py-2 text-text-secondary">{f.airline || '—'}</td>
-                <td className="px-3 py-2 text-text-secondary">{f.aircraft_type || '—'}</td>
+                <td className="px-3 py-2 text-text-secondary">
+                  {hasRegisterLookup(f.registration) ? (
+                    <Link to={`/aircraft/${f.registration}`} className="text-accent hover:underline">
+                      {f.aircraft_type || f.registration}
+                    </Link>
+                  ) : (
+                    f.aircraft_type || '—'
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <FlightImage flightId={f.id} type="aircraft" hasImage={f.has_aircraft_image ?? false} alt={f.registration ?? ''} />
+                </td>
                 <td className="px-3 py-2 text-text-secondary text-xs">
                   {formatTime(f.dep_time)}{f.dep_time && f.arr_time ? `–${formatTime(f.arr_time)}` : ''}
                 </td>
@@ -122,6 +144,7 @@ function GaFlightsTab() {
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Route</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Aircraft</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Reg</th>
+              <th className="px-3 py-2 text-xs text-text-secondary font-medium">Photo</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Captain</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Exercise</th>
               <th className="text-right px-3 py-2 text-xs text-text-secondary font-medium">Hours</th>
@@ -135,7 +158,16 @@ function GaFlightsTab() {
                   {f.dep_airport || '?'} → {f.arr_airport || '?'}
                 </td>
                 <td className="px-3 py-2 text-text-secondary">{f.aircraft_type || '—'}</td>
-                <td className="px-3 py-2 text-text-secondary">{f.registration || '—'}</td>
+                <td className="px-3 py-2 text-text-secondary">
+                  {hasRegisterLookup(f.registration) ? (
+                    <Link to={`/aircraft/${f.registration}`} className="text-accent hover:underline">
+                      {f.registration}
+                    </Link>
+                  ) : (f.registration || '—')}
+                </td>
+                <td className="px-3 py-2">
+                  <FlightImage flightId={f.id} type="aircraft" hasImage={f.has_aircraft_image ?? false} ga alt={f.registration ?? ''} />
+                </td>
                 <td className="px-3 py-2 text-text-secondary">{f.captain || '—'}</td>
                 <td className="px-3 py-2 text-text-secondary text-xs">{f.exercise || '—'}</td>
                 <td className="px-3 py-2 text-text-secondary text-right">{f.hours_total ?? '—'}</td>

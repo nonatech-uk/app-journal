@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     tautulli_url: str = "http://localhost:8181"
     tautulli_api_key: str = ""
     openai_api_key: str = ""
+    anthropic_api_key: str = ""
     mylocation_public_url: str = "https://locs.mees.st"
 
     # Pipeline ingest
@@ -40,6 +41,9 @@ class Settings(BaseSettings):
     # Flight enrichment
     flightaware_api_key: str = ""
     flight_image_cache_dir: str = "/data/journal/flight-images"
+    iaa_register_path: str = "/data/journal/iaa-register.xls"
+    airframes_org_user: str = ""
+    airframes_org_password: str = ""
 
     # Media — path to journal media files
     media_root: str = "/data/journal/media"

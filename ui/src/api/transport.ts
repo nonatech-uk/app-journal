@@ -24,6 +24,8 @@ export interface Flight {
   flight_class: number | null
   distance_km: number | null
   source: string | null
+  has_aircraft_image?: boolean
+  has_route_image?: boolean
 }
 
 export interface GaFlight {
@@ -40,6 +42,7 @@ export interface GaFlight {
   hours_total: number | null
   exercise: string | null
   comments: string | null
+  has_aircraft_image?: boolean
 }
 
 export interface RailJourney {
@@ -57,6 +60,45 @@ export interface RailJourney {
   via: string | null
   price: number | null
   currency: string | null
+}
+
+export function flightImageUrl(
+  flightId: number,
+  type: 'aircraft' | 'route',
+  size: 'thumb' | 'full',
+  ga = false,
+): string {
+  const prefix = ga ? 'ga-flights' : 'flights'
+  return `/api/v1/${prefix}/${flightId}/images/${type}/${size}`
+}
+
+export interface OwnershipEntry {
+  owner: string
+  from: string | null
+  to: string | null
+  from_display: string
+  to_display: string
+}
+
+export interface AircraftDetail {
+  registration: string
+  aircraft_type: string | null
+  narrative: string | null
+  narrative_model: string | null
+  narrative_generated_at: string | null
+  has_aircraft_image: boolean
+  ownership_timeline: OwnershipEntry[]
+  register_url: string | null
+  flights: Flight[]
+  ga_flights: GaFlight[]
+}
+
+export function aircraftImageUrl(registration: string, size: 'thumb' | 'full'): string {
+  return `/api/v1/aircraft/${encodeURIComponent(registration)}/image/${size}`
+}
+
+export function fetchAircraft(registration: string): Promise<AircraftDetail> {
+  return apiFetch<AircraftDetail>(`/aircraft/${encodeURIComponent(registration)}`)
 }
 
 export function fetchFlights(year?: number): Promise<ListResponse<Flight>> {

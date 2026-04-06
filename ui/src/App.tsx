@@ -18,6 +18,7 @@ import Travel from './pages/Travel'
 import ActivityTypes from './pages/ActivityTypes'
 import Activities from './pages/Activities'
 import ActivityDetail from './pages/ActivityDetail'
+import AircraftDetail from './pages/AircraftDetail'
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/event/:id" element={<EventDetail />} />
           <Route path="/event-types" element={<EventTypes />} />
           <Route path="/travel" element={<Travel />} />
+          <Route path="/aircraft/:registration" element={<AircraftDetail />} />
           <Route path="/activities" element={<Activities />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />
           <Route path="/activity-types" element={<ActivityTypes />} />

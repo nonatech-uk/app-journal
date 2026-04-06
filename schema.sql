@@ -603,3 +603,25 @@ CREATE INDEX IF NOT EXISTS idx_activity_apple_health_id
 UPDATE activity a SET activity_type_id = at.id
 FROM activity_type at WHERE lower(a.activity_type) = at.name
 AND a.activity_type_id IS NULL;
+
+-- Aircraft narrative cache (Claude-generated)
+CREATE TABLE IF NOT EXISTS aircraft_narrative (
+    registration    text PRIMARY KEY,
+    narrative       text NOT NULL,
+    model           text NOT NULL,
+    generated_at    timestamptz NOT NULL DEFAULT now(),
+    register_data   jsonb
+);
+
+-- Archived narrative versions (kept on 12-month refresh)
+CREATE TABLE IF NOT EXISTS aircraft_narrative_history (
+    id              serial PRIMARY KEY,
+    registration    text NOT NULL,
+    narrative       text NOT NULL,
+    model           text NOT NULL,
+    register_data   jsonb,
+    generated_at    timestamptz NOT NULL,
+    archived_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_aircraft_narrative_history_reg
+    ON aircraft_narrative_history (registration);
