@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchFlights, fetchGaFlights, fetchRailJourneys } from '../api/transport'
 import FlightImage from '../components/FlightImage'
@@ -52,6 +52,7 @@ function YearFilter({ years, selected, onChange }: {
 }
 
 function FlightsTab() {
+  const navigate = useNavigate()
   const [year, setYear] = useState<number | undefined>()
   const { data, isLoading } = useQuery({
     queryKey: ['flights', year],
@@ -64,7 +65,15 @@ function FlightsTab() {
   return (
     <>
       <YearFilter years={data?.years ?? []} selected={year} onChange={setYear} />
-      <div className="text-xs text-text-secondary mb-3">{data?.total ?? 0} flights</div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-text-secondary">{data?.total ?? 0} flights</div>
+        <button
+          onClick={() => navigate('/travel/flights/new')}
+          className="px-3 py-1.5 text-xs rounded bg-accent text-white hover:bg-accent-hover transition-colors"
+        >
+          + New Flight
+        </button>
+      </div>
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -82,17 +91,17 @@ function FlightsTab() {
           </thead>
           <tbody>
             {flights.map(f => (
-              <tr key={f.id} className="border-b border-border last:border-0 hover:bg-bg-hover">
+              <tr key={f.id} className="border-b border-border last:border-0 hover:bg-bg-hover cursor-pointer" onClick={() => navigate(`/travel/flights/${f.id}`)}>
                 <td className="px-3 py-2 text-text-secondary text-xs whitespace-nowrap">{formatDate(f.date)}</td>
                 <td className="px-3 py-2 font-medium text-text-primary">
                   {f.dep_airport} → {f.arr_airport}
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
                   <FlightImage flightId={f.id} type="route" hasImage={f.has_route_image ?? false} alt={`${f.dep_airport}–${f.arr_airport}`} />
                 </td>
                 <td className="px-3 py-2 text-text-secondary">{f.flight_number || '—'}</td>
                 <td className="px-3 py-2 text-text-secondary">{f.airline || '—'}</td>
-                <td className="px-3 py-2 text-text-secondary">
+                <td className="px-3 py-2 text-text-secondary" onClick={e => e.stopPropagation()}>
                   {hasRegisterLookup(f.registration) ? (
                     <Link to={`/aircraft/${f.registration}`} className="text-accent hover:underline">
                       {f.aircraft_type || f.registration}
@@ -101,7 +110,7 @@ function FlightsTab() {
                     f.aircraft_type || '—'
                   )}
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
                   <FlightImage flightId={f.id} type="aircraft" hasImage={f.has_aircraft_image ?? false} alt={f.registration ?? ''} />
                 </td>
                 <td className="px-3 py-2 text-text-secondary text-xs">
@@ -123,6 +132,7 @@ function FlightsTab() {
 }
 
 function GaFlightsTab() {
+  const navigate = useNavigate()
   const [year, setYear] = useState<number | undefined>()
   const { data, isLoading } = useQuery({
     queryKey: ['ga-flights', year],
@@ -135,13 +145,22 @@ function GaFlightsTab() {
   return (
     <>
       <YearFilter years={data?.years ?? []} selected={year} onChange={setYear} />
-      <div className="text-xs text-text-secondary mb-3">{data?.total ?? 0} GA flights</div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-text-secondary">{data?.total ?? 0} GA flights</div>
+        <button
+          onClick={() => navigate('/travel/ga/new')}
+          className="px-3 py-1.5 text-xs rounded bg-accent text-white hover:bg-accent-hover transition-colors"
+        >
+          + New GA Flight
+        </button>
+      </div>
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-bg-secondary">
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Date</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Route</th>
+              <th className="px-3 py-2 text-xs text-text-secondary font-medium">Map</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Aircraft</th>
               <th className="text-left px-3 py-2 text-xs text-text-secondary font-medium">Reg</th>
               <th className="px-3 py-2 text-xs text-text-secondary font-medium">Photo</th>
@@ -152,20 +171,23 @@ function GaFlightsTab() {
           </thead>
           <tbody>
             {flights.map(f => (
-              <tr key={f.id} className="border-b border-border last:border-0 hover:bg-bg-hover">
+              <tr key={f.id} className="border-b border-border last:border-0 hover:bg-bg-hover cursor-pointer" onClick={() => navigate(`/travel/ga/${f.id}`)}>
                 <td className="px-3 py-2 text-text-secondary text-xs whitespace-nowrap">{formatDate(f.date)}</td>
                 <td className="px-3 py-2 font-medium text-text-primary">
                   {f.dep_airport || '?'} → {f.arr_airport || '?'}
                 </td>
+                <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                  <FlightImage flightId={f.id} type="route" hasImage={f.has_route_image ?? false} ga alt={`${f.dep_airport}–${f.arr_airport}`} />
+                </td>
                 <td className="px-3 py-2 text-text-secondary">{f.aircraft_type || '—'}</td>
-                <td className="px-3 py-2 text-text-secondary">
+                <td className="px-3 py-2 text-text-secondary" onClick={e => e.stopPropagation()}>
                   {hasRegisterLookup(f.registration) ? (
                     <Link to={`/aircraft/${f.registration}`} className="text-accent hover:underline">
                       {f.registration}
                     </Link>
                   ) : (f.registration || '—')}
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
                   <FlightImage flightId={f.id} type="aircraft" hasImage={f.has_aircraft_image ?? false} ga alt={f.registration ?? ''} />
                 </td>
                 <td className="px-3 py-2 text-text-secondary">{f.captain || '—'}</td>
@@ -184,6 +206,7 @@ function GaFlightsTab() {
 }
 
 function RailTab() {
+  const navigate = useNavigate()
   const [year, setYear] = useState<number | undefined>()
   const { data, isLoading } = useQuery({
     queryKey: ['rail-journeys', year],
@@ -196,7 +219,15 @@ function RailTab() {
   return (
     <>
       <YearFilter years={data?.years ?? []} selected={year} onChange={setYear} />
-      <div className="text-xs text-text-secondary mb-3">{data?.total ?? 0} rail journeys</div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-text-secondary">{data?.total ?? 0} rail journeys</div>
+        <button
+          onClick={() => navigate('/travel/rail/new')}
+          className="px-3 py-1.5 text-xs rounded bg-accent text-white hover:bg-accent-hover transition-colors"
+        >
+          + New Rail Journey
+        </button>
+      </div>
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -211,7 +242,7 @@ function RailTab() {
           </thead>
           <tbody>
             {journeys.map(rj => (
-              <tr key={rj.id} className="border-b border-border last:border-0 hover:bg-bg-hover">
+              <tr key={rj.id} className="border-b border-border last:border-0 hover:bg-bg-hover cursor-pointer" onClick={() => navigate(`/travel/rail/${rj.id}`)}>
                 <td className="px-3 py-2 text-text-secondary text-xs whitespace-nowrap">{formatDate(rj.date)}</td>
                 <td className="px-3 py-2 font-medium text-text-primary">
                   {rj.from_station} → {rj.to_station}

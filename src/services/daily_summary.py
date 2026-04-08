@@ -409,6 +409,16 @@ def _enrich_immich_photos(
         log.warning("Immich search failed for %s: %s", target_date, e)
         return result
 
+    # Filter out assets belonging to excluded albums
+    from src.services.immich import get_excluded_asset_ids
+    excluded = get_excluded_asset_ids(settings)
+    if excluded:
+        before = len(assets)
+        assets = [a for a in assets if a.get("id") not in excluded]
+        if len(assets) < before:
+            log.info("Album exclusion filter removed %d/%d assets for %s",
+                     before - len(assets), before, target_date)
+
     # Prune: existing refs not in live Immich results are trashed/deleted
     live_ids = {a["id"] for a in assets}
     stale_ids = existing_ids - live_ids

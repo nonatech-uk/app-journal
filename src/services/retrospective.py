@@ -250,7 +250,13 @@ def collect_day_data(
                 timeout=30,
             )
             resp.raise_for_status()
-            day.photos = resp.json().get("assets", {}).get("items", [])
+            photos = resp.json().get("assets", {}).get("items", [])
+            # Filter out assets belonging to excluded albums
+            from src.services.immich import get_excluded_asset_ids
+            excluded = get_excluded_asset_ids(settings)
+            if excluded:
+                photos = [a for a in photos if a.get("id") not in excluded]
+            day.photos = photos
         except Exception:
             pass
 

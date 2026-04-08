@@ -19,6 +19,9 @@ import ActivityTypes from './pages/ActivityTypes'
 import Activities from './pages/Activities'
 import ActivityDetail from './pages/ActivityDetail'
 import AircraftDetail from './pages/AircraftDetail'
+import FlightDetail from './pages/FlightDetail'
+import GaFlightDetail from './pages/GaFlightDetail'
+import RailDetail from './pages/RailDetail'
 
 export default function App() {
   return (
@@ -39,6 +42,9 @@ export default function App() {
           <Route path="/event/:id" element={<EventDetail />} />
           <Route path="/event-types" element={<EventTypes />} />
           <Route path="/travel" element={<Travel />} />
+          <Route path="/travel/flights/:id" element={<FlightDetail />} />
+          <Route path="/travel/ga/:id" element={<GaFlightDetail />} />
+          <Route path="/travel/rail/:id" element={<RailDetail />} />
           <Route path="/aircraft/:registration" element={<AircraftDetail />} />
           <Route path="/activities" element={<Activities />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />

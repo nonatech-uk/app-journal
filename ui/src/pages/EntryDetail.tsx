@@ -237,7 +237,7 @@ export default function EntryDetail() {
                         <img
                           src={`${att.media_url}?thumb=1`}
                           alt={att.caption || ''}
-                          className="w-full h-auto max-h-64 object-cover cursor-pointer"
+                          className="w-full h-auto max-h-64 cursor-pointer rounded"
                           loading="lazy"
                         />
                       </a>

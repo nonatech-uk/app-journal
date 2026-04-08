@@ -17,11 +17,11 @@ export default function EntryCard({ entry }: { entry: EntrySummary }) {
     >
       <div className="flex">
         {entry.thumbnail_url && (
-          <div className="w-24 h-24 shrink-0">
+          <div className="shrink-0">
             <img
               src={entry.thumbnail_url}
               alt=""
-              className="w-full h-full object-cover"
+              className="h-24 w-auto rounded-l-lg"
               loading="lazy"
             />
           </div>

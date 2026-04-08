@@ -318,3 +318,50 @@ def run_enrichment(conn, api_key, dry_run=False):
         "errors": errors,
         "summaries": summaries,
     }
+
+
+def run_backfill(conn, api_key, dry_run=False):
+    """Backfill all flights that have a flight number but missing registration or aircraft type.
+
+    Returns dict with keys: total, enriched, no_fa_data, errors, summaries.
+    """
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, date, flight_number, dep_airport, arr_airport, dep_time
+        FROM flight
+        WHERE flight_number IS NOT NULL
+          AND (registration IS NULL OR aircraft_type IS NULL)
+        ORDER BY date DESC
+    """)
+    flights = cur.fetchall()
+    cur.close()
+
+    log.info("Backfill: found %d flight(s) with gaps", len(flights))
+
+    if dry_run:
+        for f in flights:
+            log.info("  %s %s %s→%s", f[1], f[2], f[3], f[4])
+        return {"total": len(flights), "enriched": 0, "no_fa_data": 0, "errors": 0, "summaries": []}
+
+    enriched = 0
+    no_fa_data = 0
+    errors = 0
+    summaries = []
+
+    for flight in flights:
+        result = enrich_flight(conn, flight, api_key)
+        summaries.append(result["summary"])
+        if result["status"] == "enriched":
+            enriched += 1
+        elif result["status"] == "no_fa_data":
+            no_fa_data += 1
+        else:
+            errors += 1
+
+    return {
+        "total": len(flights),
+        "enriched": enriched,
+        "no_fa_data": no_fa_data,
+        "errors": errors,
+        "summaries": summaries,
+    }

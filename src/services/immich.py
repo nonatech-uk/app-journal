@@ -1,9 +1,13 @@
 """Immich service — photo search, thumbnails, and asset download."""
 
+import logging
 import os
+import re
 from pathlib import Path
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 
 def _headers(settings) -> dict:
@@ -124,6 +128,74 @@ def download_asset(settings, asset_id: str, media_root: str, entry_uuid: str) ->
         }
     except Exception:
         return None
+
+
+_excluded_cache: dict[str, tuple[float, set[str]]] = {}
+_EXCLUDED_CACHE_TTL = 300  # 5 minutes
+
+
+def get_excluded_asset_ids(settings) -> set[str]:
+    """Return the set of Immich asset IDs that belong to albums matching the exclusion patterns.
+
+    The patterns are read from ``settings.immich_album_exclude_patterns`` (comma-separated regexes).
+    Albums whose name matches any pattern are considered excluded.
+    Results are cached for 5 minutes to avoid repeated API calls during batch runs.
+    """
+    import time
+
+    raw = (settings.immich_album_exclude_patterns or "").strip()
+    cache_key = raw
+    now = time.monotonic()
+    if cache_key in _excluded_cache:
+        ts, ids = _excluded_cache[cache_key]
+        if now - ts < _EXCLUDED_CACHE_TTL:
+            return ids
+
+    if not raw or not settings.immich_api_key:
+        return set()
+
+    patterns = [re.compile(p.strip()) for p in raw.split(",") if p.strip()]
+    if not patterns:
+        return set()
+
+    try:
+        resp = httpx.get(
+            f"{settings.immich_url}/api/albums",
+            headers=_headers(settings),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        albums = resp.json()
+    except Exception as e:
+        log.warning("Failed to fetch Immich albums for exclusion filter: %s", e)
+        return set()
+
+    excluded_ids: set[str] = set()
+    for album in albums:
+        name = album.get("albumName", "")
+        if any(p.search(name) for p in patterns):
+            album_id = album.get("id")
+            if not album_id:
+                continue
+            try:
+                detail = httpx.get(
+                    f"{settings.immich_url}/api/albums/{album_id}",
+                    headers=_headers(settings),
+                    timeout=15,
+                )
+                detail.raise_for_status()
+                for asset in detail.json().get("assets", []):
+                    if aid := asset.get("id"):
+                        excluded_ids.add(aid)
+            except Exception as e:
+                log.warning("Failed to fetch album %s (%s): %s", name, album_id, e)
+
+    if excluded_ids:
+        log.info("Album exclusion filter: %d assets in %d excluded albums",
+                 len(excluded_ids), sum(1 for a in albums
+                                        if any(p.search(a.get("albumName", "")) for p in patterns)))
+    _excluded_cache[cache_key] = (now, excluded_ids)
+    return excluded_ids
 
 
 def _summarise_asset(asset: dict) -> dict:

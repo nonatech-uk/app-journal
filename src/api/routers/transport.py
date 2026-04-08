@@ -126,6 +126,59 @@ def list_flights(
     return {"items": items, "total": total, "years": years}
 
 
+class FlightCreate(BaseModel):
+    date: str
+    dep_airport: str
+    arr_airport: str
+    flight_number: str | None = None
+    airline: str | None = None
+    aircraft_type: str | None = None
+    registration: str | None = None
+    seat_number: str | None = None
+    seat_type: int | None = None
+    flight_class: int | None = None
+    flight_reason: int | None = None
+    notes: str | None = None
+    dep_time: str | None = None
+    arr_time: str | None = None
+
+
+class FlightUpdate(BaseModel):
+    flight_number: str | None = None
+    airline: str | None = None
+    aircraft_type: str | None = None
+    registration: str | None = None
+    seat_number: str | None = None
+    seat_type: int | None = None
+    flight_class: int | None = None
+    flight_reason: int | None = None
+    notes: str | None = None
+    is_route: bool | None = None
+    times_flown: int | None = None
+
+
+@router.post("/flights")
+def create_flight(
+    body: FlightCreate,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO flight (date, dep_airport, arr_airport, flight_number, airline,
+                            aircraft_type, registration, seat_number, seat_type,
+                            flight_class, flight_reason, notes, dep_time, arr_time, source)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'manual')
+        RETURNING id
+    """, (body.date, body.dep_airport, body.arr_airport, body.flight_number,
+          body.airline, body.aircraft_type, body.registration, body.seat_number,
+          body.seat_type, body.flight_class, body.flight_reason, body.notes,
+          body.dep_time, body.arr_time))
+    flight_id = cur.fetchone()[0]
+    conn.commit()
+    return get_flight(flight_id, conn, _user)
+
+
 @router.get("/flights/{flight_id}")
 def get_flight(flight_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     cur = conn.cursor()
@@ -150,6 +203,40 @@ def get_flight(flight_id: int, conn=Depends(get_conn), _user=Depends(get_current
     flight["has_route_image"] = has_route_image(flight.get("dep_airport"), flight.get("arr_airport"))
     flight["has_aircraft_image"] = has_aircraft_image(flight.get("registration"))
     return flight
+
+
+@router.put("/flights/{flight_id}")
+def update_flight(
+    flight_id: int,
+    body: FlightUpdate,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        return get_flight(flight_id, conn, _user)
+    set_clause = ", ".join(f"{k} = %({k})s" for k in fields)
+    fields["id"] = flight_id
+    cur.execute(f"UPDATE flight SET {set_clause} WHERE id = %(id)s RETURNING id", fields)
+    if not cur.fetchone():
+        raise HTTPException(404, "Flight not found")
+    conn.commit()
+    return get_flight(flight_id, conn, _user)
+
+
+@router.delete("/flights/{flight_id}")
+def delete_flight(
+    flight_id: int,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM flight WHERE id = %s RETURNING id", (flight_id,))
+    if not cur.fetchone():
+        raise HTTPException(404, "Flight not found")
+    conn.commit()
+    return {"deleted": True}
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +275,7 @@ def list_ga_flights(
 
     for item in items:
         item["has_aircraft_image"] = has_aircraft_image(item.get("registration"))
+        item["has_route_image"] = has_route_image(item.get("dep_airport"), item.get("arr_airport"))
     schedule_prefetch(items)
 
     cur.execute(f"SELECT count(*) FROM ga_flight {where}", params)
@@ -197,6 +285,51 @@ def list_ga_flights(
     years = [{"year": r[0], "count": r[1]} for r in cur.fetchall()]
 
     return {"items": items, "total": total, "years": years}
+
+
+class GaFlightCreate(BaseModel):
+    date: str
+    aircraft_type: str | None = None
+    registration: str | None = None
+    captain: str | None = None
+    operating_capacity: str | None = None
+    dep_airport: str | None = None
+    arr_airport: str | None = None
+    dep_time: str | None = None
+    arr_time: str | None = None
+    hours_total: float | None = None
+    exercise: str | None = None
+    comments: str | None = None
+
+
+class GaFlightUpdate(BaseModel):
+    aircraft_type: str | None = None
+    registration: str | None = None
+    captain: str | None = None
+    operating_capacity: str | None = None
+    exercise: str | None = None
+    comments: str | None = None
+
+
+@router.post("/ga-flights")
+def create_ga_flight(
+    body: GaFlightCreate,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO ga_flight (date, aircraft_type, registration, captain,
+                               operating_capacity, dep_airport, arr_airport,
+                               dep_time, arr_time, hours_total, exercise, comments)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (body.date, body.aircraft_type, body.registration, body.captain,
+          body.operating_capacity, body.dep_airport, body.arr_airport,
+          body.dep_time, body.arr_time, body.hours_total, body.exercise, body.comments))
+    flight_id = cur.fetchone()[0]
+    conn.commit()
+    return get_ga_flight(flight_id, conn, _user)
 
 
 @router.get("/ga-flights/{flight_id}")
@@ -209,7 +342,42 @@ def get_ga_flight(flight_id: int, conn=Depends(get_conn), _user=Depends(get_curr
     cols = [desc[0] for desc in cur.description]
     ga_flight = dict(zip(cols, row))
     ga_flight["has_aircraft_image"] = has_aircraft_image(ga_flight.get("registration"))
+    ga_flight["has_route_image"] = has_route_image(ga_flight.get("dep_airport"), ga_flight.get("arr_airport"))
     return ga_flight
+
+
+@router.put("/ga-flights/{flight_id}")
+def update_ga_flight(
+    flight_id: int,
+    body: GaFlightUpdate,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        return get_ga_flight(flight_id, conn, _user)
+    set_clause = ", ".join(f"{k} = %({k})s" for k in fields)
+    fields["id"] = flight_id
+    cur.execute(f"UPDATE ga_flight SET {set_clause} WHERE id = %(id)s RETURNING id", fields)
+    if not cur.fetchone():
+        raise HTTPException(404, "GA flight not found")
+    conn.commit()
+    return get_ga_flight(flight_id, conn, _user)
+
+
+@router.delete("/ga-flights/{flight_id}")
+def delete_ga_flight(
+    flight_id: int,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ga_flight WHERE id = %s RETURNING id", (flight_id,))
+    if not cur.fetchone():
+        raise HTTPException(404, "GA flight not found")
+    conn.commit()
+    return {"deleted": True}
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +590,95 @@ def list_rail_journeys(
     return {"items": items, "total": total, "years": years}
 
 
+class RailJourneyCreate(BaseModel):
+    date: str
+    time: str | None = None
+    from_station: str
+    from_code: str | None = None
+    to_station: str
+    to_code: str | None = None
+    operator: str | None = None
+    ticket_type: str | None = None
+    direction: str | None = None
+    train: str | None = None
+    via: str | None = None
+    reference: str | None = None
+    price: float | None = None
+    currency: str | None = None
+
+
+class RailJourneyUpdate(BaseModel):
+    date: str | None = None
+    time: str | None = None
+    from_station: str | None = None
+    from_code: str | None = None
+    to_station: str | None = None
+    to_code: str | None = None
+    operator: str | None = None
+    ticket_type: str | None = None
+    direction: str | None = None
+    train: str | None = None
+    via: str | None = None
+    reference: str | None = None
+    price: float | None = None
+    currency: str | None = None
+
+
+@router.post("/rail-journeys")
+def create_rail_journey(
+    body: RailJourneyCreate,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO rail_journey (date, time, from_station, from_code, to_station, to_code,
+                                  operator, ticket_type, direction, train, via, reference,
+                                  price, currency, source)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'manual')
+        RETURNING id
+    """, (body.date, body.time, body.from_station, body.from_code, body.to_station,
+          body.to_code, body.operator, body.ticket_type, body.direction, body.train,
+          body.via, body.reference, body.price, body.currency))
+    journey_id = cur.fetchone()[0]
+    conn.commit()
+    return get_rail_journey(journey_id, conn, _user)
+
+
+@router.put("/rail-journeys/{journey_id}")
+def update_rail_journey(
+    journey_id: int,
+    body: RailJourneyUpdate,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        return get_rail_journey(journey_id, conn, _user)
+    set_clause = ", ".join(f"{k} = %({k})s" for k in fields)
+    fields["id"] = journey_id
+    cur.execute(f"UPDATE rail_journey SET {set_clause} WHERE id = %(id)s RETURNING id", fields)
+    if not cur.fetchone():
+        raise HTTPException(404, "Rail journey not found")
+    conn.commit()
+    return get_rail_journey(journey_id, conn, _user)
+
+
+@router.delete("/rail-journeys/{journey_id}")
+def delete_rail_journey(
+    journey_id: int,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM rail_journey WHERE id = %s RETURNING id", (journey_id,))
+    if not cur.fetchone():
+        raise HTTPException(404, "Rail journey not found")
+    conn.commit()
+    return {"deleted": True}
+
+
 @router.get("/rail-journeys/{journey_id}")
 def get_rail_journey(journey_id: int, conn=Depends(get_conn), _user=Depends(get_current_user)):
     cur = conn.cursor()
@@ -500,6 +757,33 @@ def get_ga_flight_image(
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
+@router.get("/ga-flights/{flight_id}/images/route/{size}")
+def get_ga_flight_route_image(
+    flight_id: int,
+    size: str,
+    conn=Depends(get_conn),
+    _user=Depends(get_current_user),
+):
+    if size not in ("thumb", "full"):
+        raise HTTPException(400, "size must be 'thumb' or 'full'")
+
+    cur = conn.cursor()
+    cur.execute("SELECT dep_airport, arr_airport FROM ga_flight WHERE id = %s", (flight_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "GA flight not found")
+    if not row[0] or not row[1]:
+        raise HTTPException(404, "No airports for this flight")
+
+    path = route_image_path(row[0], row[1], size)
+    if not path.exists():
+        raise HTTPException(404, "Image not yet available",
+                            headers={"Cache-Control": "no-store"})
+
+    return FileResponse(path, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @router.post("/flights/images/prefetch-all")
 def prefetch_all_images(
     conn=Depends(get_conn),
@@ -514,5 +798,42 @@ def prefetch_all_images(
     """)
     cols = [desc[0] for desc in cur.description]
     batch = [dict(zip(cols, r)) for r in cur.fetchall()]
+    schedule_prefetch(batch)
+    return {"status": "prefetch_scheduled", "count": len(batch)}
+
+
+@router.post("/ga-flights/images/prefetch-all")
+def prefetch_all_ga_images(
+    conn=Depends(get_conn),
+    _=Depends(require_admin),
+):
+    """Trigger background prefetch for all GA flights missing images."""
+    from src.services.flights.airports import lookup_airport
+
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, dep_airport, arr_airport, registration
+        FROM ga_flight
+        WHERE dep_airport IS NOT NULL AND arr_airport IS NOT NULL
+    """)
+    cols = [desc[0] for desc in cur.description]
+    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    # Resolve ICAO codes to lat/lon
+    batch = []
+    for row in rows:
+        dep = lookup_airport(row["dep_airport"])
+        arr = lookup_airport(row["arr_airport"])
+        item = {
+            "dep_airport": row["dep_airport"],
+            "arr_airport": row["arr_airport"],
+            "registration": row.get("registration"),
+            "dep_lat": dep["lat"] if dep else None,
+            "dep_lon": dep["lon"] if dep else None,
+            "arr_lat": arr["lat"] if arr else None,
+            "arr_lon": arr["lon"] if arr else None,
+        }
+        batch.append(item)
+
     schedule_prefetch(batch)
     return {"status": "prefetch_scheduled", "count": len(batch)}

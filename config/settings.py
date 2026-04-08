@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     immich_url: str = "http://localhost:2283"
     immich_public_url: str = "https://pix.mees.st"
     immich_api_key: str = ""
+    immich_tag_api_key: str = ""  # key with tag.create + tag.asset perms (falls back to immich_api_key)
     paperless_url: str = "http://localhost:8000"
     paperless_api_token: str = ""
     tautulli_url: str = "http://localhost:8181"
@@ -34,6 +35,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     mylocation_public_url: str = "https://locs.mees.st"
+
+    # Immich album exclusion — photos in albums matching any of these regexes are
+    # excluded from automatic enrichment.  Comma-separated list of patterns.
+    immich_album_exclude_patterns: str = "^_"
 
     # Pipeline ingest
     pipeline_secret: str = ""
