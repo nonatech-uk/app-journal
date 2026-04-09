@@ -1,16 +1,18 @@
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from mees_shared.settings import BaseAppSettings
 
 
-class Settings(BaseSettings):
-    # Postgres — journal database
+class Settings(BaseAppSettings):
     db_host: str = "192.168.128.9"
-    db_port: int = 5432
     db_name: str = "journal"
     db_user: str = "journal"
-    db_password: str = ""
     db_sslmode: str = "require"
+
+    cors_origins: list[str] = [
+        "https://journal.mees.st",
+        "http://localhost:5173",
+    ]
 
     # Cross-DB connections (for enrichment)
     finance_db_name: str = "finance"
@@ -27,7 +29,7 @@ class Settings(BaseSettings):
     immich_url: str = "http://localhost:2283"
     immich_public_url: str = "https://pix.mees.st"
     immich_api_key: str = ""
-    immich_tag_api_key: str = ""  # key with tag.create + tag.asset perms (falls back to immich_api_key)
+    immich_tag_api_key: str = ""
     paperless_url: str = "http://localhost:8000"
     paperless_api_token: str = ""
     tautulli_url: str = "http://localhost:8181"
@@ -36,8 +38,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     mylocation_public_url: str = "https://locs.mees.st"
 
-    # Immich album exclusion — photos in albums matching any of these regexes are
-    # excluded from automatic enrichment.  Comma-separated list of patterns.
+    # Immich album exclusion
     immich_album_exclude_patterns: str = "^_"
 
     # Pipeline ingest
@@ -50,43 +51,13 @@ class Settings(BaseSettings):
     airframes_org_user: str = ""
     airframes_org_password: str = ""
 
-    # Media — path to journal media files
+    # Media
     media_root: str = "/data/journal/media"
-
-    # Auth
-    auth_enabled: bool = True
-    dev_user_email: str = "stu@mees.st"
-    cors_origins: list[str] = [
-        "https://journal.mees.st",
-        "http://localhost:5173",
-    ]
-
-    # Usage tracking
-    usage_dsn: str = ""
-
-    # API server
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
-    db_pool_min: int = 2
-    db_pool_max: int = 10
 
     model_config = {
         "env_file": str(Path(__file__).resolve().parent / ".env"),
         "env_file_encoding": "utf-8",
     }
-
-    @property
-    def dsn(self) -> str:
-        return (
-            f"host={self.db_host} port={self.db_port} dbname={self.db_name} "
-            f"user={self.db_user} password={self.db_password} sslmode={self.db_sslmode}"
-        )
-
-    def cross_dsn(self, db_name: str, db_user: str, db_password: str) -> str:
-        return (
-            f"host={self.db_host} port={self.db_port} dbname={db_name} "
-            f"user={db_user} password={db_password} sslmode={self.db_sslmode}"
-        )
 
 
 settings = Settings()

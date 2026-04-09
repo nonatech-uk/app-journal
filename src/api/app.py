@@ -1,5 +1,7 @@
 """Journal API — FastAPI application."""
 
+import asyncio
+import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,24 +10,35 @@ _project_root = str(Path(__file__).resolve().parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from config.settings import settings
 from src.api.deps import close_pool, init_pool
 from src.api.routers import activities, auth, calendar, context, daily_summary, enrichment, entries, events, flights, immich, journals, map, media, people, places, scrobbles, search, stats, tags, transport, trips, watches
-from src.api.usage_tracker import init_usage_tracker, shutdown_usage_tracker, track_usage_middleware, usage_pageview_router
+
+from mees_shared.usage_tracker import init_usage_tracker, shutdown_usage_tracker, track_usage_middleware, usage_pageview_router
+from mees_shared.dashboard import register_with_dashboard
+from mees_shared.spa import mount_spa
 
 STATIC_DIR = Path(_project_root) / "static"
+
+_log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_pool()
     init_usage_tracker("journal", settings.usage_dsn)
+    task = asyncio.create_task(register_with_dashboard(
+        label="Journal",
+        href="https://journal.mees.st",
+        icon="\u25EB",
+        sort_order=1,
+        registry_key=settings.dash_registry_key,
+    ))
     yield
+    task.cancel()
     shutdown_usage_tracker()
     close_pool()
 
@@ -72,19 +85,5 @@ app.include_router(events.router, prefix="/api/v1", tags=["events"])
 app.include_router(transport.router, prefix="/api/v1", tags=["transport"])
 app.include_router(usage_pageview_router, prefix="/api/v1")
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-# Serve React SPA
-if STATIC_DIR.is_dir():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="static-assets")
-
-    @app.get("/{full_path:path}")
-    async def serve_spa(request: Request, full_path: str):
-        file_path = STATIC_DIR / full_path
-        if full_path and file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(STATIC_DIR / "index.html")
+# SPA serving + /health endpoint
+mount_spa(app, STATIC_DIR)

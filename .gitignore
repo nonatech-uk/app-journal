@@ -7,3 +7,7 @@ static/
 *.sqlite
 .DS_Store
 config/.env
+
+# Shared libraries copied during build
+mees-shared-py/
+mees-shared-ui/

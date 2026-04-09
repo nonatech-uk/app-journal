@@ -1,6 +1,6 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import AppSwitcher from './AppSwitcher'
+import { AppSwitcher } from '@mees/shared-ui'
 
 const NAV_ITEMS = [
   { to: '/timeline', label: 'Timeline', icon: '◫' },
