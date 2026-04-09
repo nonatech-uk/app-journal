@@ -201,7 +201,7 @@ export default function EntryDetail() {
         )}
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex flex-col md:flex-row gap-6">
         {/* Main content */}
         <div className="flex-1 min-w-0">
           {/* Photos/Videos */}
@@ -435,7 +435,7 @@ export default function EntryDetail() {
         </div>
 
         {/* Sidebar — context */}
-        <div className="w-64 shrink-0 space-y-4">
+        <div className="w-full md:w-64 shrink-0 space-y-4">
           {/* Mood & Energy */}
           <div className="bg-bg-card border border-border rounded-lg p-3">
             <div className="flex items-center justify-between">
