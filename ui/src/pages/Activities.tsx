@@ -103,7 +103,7 @@ export default function Activities() {
       <YearFilter years={data?.years ?? []} selected={year} onChange={setYear} />
       <div className="text-xs text-text-secondary mb-3">{data?.total ?? 0} activities</div>
 
-      <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-bg-card border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-bg-secondary">

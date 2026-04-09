@@ -123,7 +123,7 @@ export default function TripDetail() {
 
       {/* Stats */}
       {trip.stats && trip.stats.length > 0 && (
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
           {trip.stats.map(s => (
             <div key={s.key} className="bg-bg-card border border-border rounded p-2 text-center">
               <div className="text-lg font-bold text-text-primary">{s.value}{s.unit && <span className="text-xs text-text-secondary ml-0.5">{s.unit}</span>}</div>

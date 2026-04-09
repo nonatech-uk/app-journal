@@ -25,7 +25,7 @@ export default function Calendar() {
           .map(([year, yearMonths]) => (
             <div key={year}>
               <h3 className="text-lg font-semibold mb-2">{year}</h3>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {yearMonths!
                   .sort((a, b) => b.month - a.month)
                   .map((m) => {

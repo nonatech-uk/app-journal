@@ -187,7 +187,7 @@ export default function GaFlightDetail() {
           {(visibleHours.length > 0 || (f.hours_total != null && f.hours_total !== 0)) && (
             <div className="bg-bg-card border border-border rounded-lg p-4 mb-4">
               <h3 className="text-sm font-medium text-text-primary mb-2">Hours</h3>
-              <div className="grid grid-cols-3 gap-x-4 gap-y-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1.5">
                 {visibleHours.map(h => (
                   <div key={h.label} className="flex justify-between text-sm">
                     <span className="text-text-secondary">{h.label}</span>

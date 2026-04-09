@@ -86,7 +86,7 @@ export default function ActivityTypes() {
       )}
 
       {/* Types table */}
-      <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-bg-card border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-bg-secondary">

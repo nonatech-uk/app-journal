@@ -155,7 +155,7 @@ export default function AircraftDetail() {
       {aircraft.ownership_timeline.length > 0 && (
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-text-primary mb-2">Ownership history</h3>
-          <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+          <div className="bg-bg-card border border-border rounded-lg overflow-x-auto">
             {aircraft.ownership_timeline.map((entry, i) => {
               const youFlew = flightDates.some(d => isOwnerDuringFlight(entry, d))
               return (
@@ -191,7 +191,7 @@ export default function AircraftDetail() {
           <h3 className="text-sm font-semibold text-text-primary mb-2">
             Your flights ({aircraft.flights.length})
           </h3>
-          <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+          <div className="bg-bg-card border border-border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-bg-secondary">
@@ -232,7 +232,7 @@ export default function AircraftDetail() {
           <h3 className="text-sm font-semibold text-text-primary mb-2">
             Your GA flights ({aircraft.ga_flights.length})
           </h3>
-          <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+          <div className="bg-bg-card border border-border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-bg-secondary">

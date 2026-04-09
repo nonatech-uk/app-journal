@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import AppSwitcher from './AppSwitcher'
 
@@ -17,29 +17,35 @@ const NAV_ITEMS = [
   { to: '/stats', label: 'Stats', icon: '⊞' },
 ]
 
-export default function Sidebar() {
+interface SidebarProps {
+  className?: string
+  onNavigate?: () => void
+}
+
+export default function Sidebar({ className, onNavigate }: SidebarProps) {
   const { data: user } = useAuth()
   const navigate = useNavigate()
 
   return (
-    <aside className="w-52 bg-bg-secondary border-r border-border flex flex-col shrink-0">
+    <aside className={`w-52 bg-bg-secondary border-r border-border flex flex-col shrink-0 ${className ?? ''}`}>
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <h1 className="text-lg font-bold text-accent">Journal</h1>
-        <AppSwitcher />
+        <Link to="/" className="text-lg font-bold text-accent hover:text-accent-hover transition-colors">Journal</Link>
+        <AppSwitcher currentApp="Journal" />
       </div>
       <div className="p-2">
         <button
-          onClick={() => navigate('/new')}
+          onClick={() => { navigate('/new'); onNavigate?.() }}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-colors"
         >
           + New Entry
         </button>
       </div>
-      <nav className="flex-1 p-2 space-y-1">
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         {NAV_ITEMS.map(({ to, label, icon }) => (
           <NavLink
             key={to}
             to={to}
+            onClick={onNavigate}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
                 isActive

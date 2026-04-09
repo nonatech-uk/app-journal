@@ -113,7 +113,7 @@ export default function Places() {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs text-text-secondary mb-1">Latitude *</label>
                 <input
@@ -196,7 +196,7 @@ export default function Places() {
       )}
 
       {/* Places table */}
-      <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-bg-card border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-bg-secondary">
