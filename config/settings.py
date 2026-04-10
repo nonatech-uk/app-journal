@@ -41,6 +41,10 @@ class Settings(BaseAppSettings):
     # Immich album exclusion
     immich_album_exclude_patterns: str = "^_"
 
+    # Linkwarden
+    linkwarden_url: str = "http://192.168.128.9:3000"
+    linkwarden_api_key: str = ""
+
     # Pipeline ingest
     pipeline_secret: str = ""
 
