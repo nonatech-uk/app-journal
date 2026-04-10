@@ -28,8 +28,7 @@ from config.settings import settings
 
 COLLECTION_NAME = "Journal"
 JOURNAL_BASE_URL = "https://journal.mees.st"
-HC_UUID = ""  # TODO: create healthcheck and add UUID
-HC_BASE = "https://hc.mees.st/ping"
+HC_UUID = "04df5f9c-25dc-44fb-9205-f6927a970cdb"
 
 URL_PATTERN = re.compile(r'https?://[^\s\)\]>"\']+')
 MARKDOWN_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\((https?://[^\s\)]+)\)')
@@ -42,7 +41,7 @@ def ping_hc(suffix: str = ""):
     if not HC_UUID:
         return
     try:
-        httpx.get(f"{HC_BASE}/{HC_UUID}{suffix}", timeout=5)
+        httpx.get(f"{settings.hc_base}/{HC_UUID}{suffix}", timeout=5)
     except Exception:
         pass
 
