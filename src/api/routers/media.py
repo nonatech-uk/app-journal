@@ -15,8 +15,16 @@ MIME_MAP = {
     "png": "image/png",
     "mov": "video/quicktime",
     "mp4": "video/mp4",
+    "webm": "video/webm",
+    "ogg": "video/ogg",
     "pdf": "application/pdf",
     "audio": "audio/webm",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "txt": "text/plain",
+    "csv": "text/csv",
 }
 
 THUMB_SIZE = (800, 800)

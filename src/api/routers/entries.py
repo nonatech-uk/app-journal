@@ -780,8 +780,10 @@ def upload_attachment(
     filename = file.filename or "upload"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     type_map = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "png",
-                "mov": "mov", "mp4": "mp4", "pdf": "pdf", "heic": "jpeg", "webp": "png"}
-    media_type = type_map.get(ext, "jpeg")
+                "mov": "mov", "mp4": "mp4", "pdf": "pdf", "heic": "jpeg", "webp": "png",
+                "doc": "doc", "docx": "docx", "xls": "xls", "xlsx": "xlsx",
+                "txt": "txt", "csv": "csv", "webm": "webm", "ogg": "ogg"}
+    media_type = type_map.get(ext, ext or "file")  # fallback to extension itself
 
     # Save file
     dest_dir = Path(settings.media_root) / entry_uuid

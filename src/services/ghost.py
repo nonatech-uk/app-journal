@@ -159,11 +159,44 @@ class GhostClient:
 
     def upload_image(self, image_bytes: bytes, filename: str) -> str:
         """Upload an image to Ghost. Returns the URL."""
+        mime = "image/png" if filename.endswith(".png") else "image/jpeg"
         resp = httpx.post(
             f"{self.api_url}/images/upload/",
-            files={"file": (filename, image_bytes, "image/jpeg")},
+            files={"file": (filename, image_bytes, mime)},
             headers=self._headers(),
             timeout=30,
         )
         resp.raise_for_status()
         return resp.json()["images"][0]["url"]
+
+    def upload_media(self, media_bytes: bytes, filename: str) -> str:
+        """Upload a video to Ghost. Returns the URL."""
+        mime_map = {"mp4": "video/mp4", "webm": "video/webm", "ogg": "video/ogg", "mov": "video/quicktime"}
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "mp4"
+        resp = httpx.post(
+            f"{self.api_url}/media/upload/",
+            files={"file": (filename, media_bytes, mime_map.get(ext, "video/mp4"))},
+            headers=self._headers(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return resp.json()["media"][0]["url"]
+
+    def upload_file(self, file_bytes: bytes, filename: str) -> str:
+        """Upload a document (PDF, etc.) to Ghost. Returns the URL."""
+        mime_map = {
+            "pdf": "application/pdf", "doc": "application/msword",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "xls": "application/vnd.ms-excel",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "txt": "text/plain", "csv": "text/csv",
+        }
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "pdf"
+        resp = httpx.post(
+            f"{self.api_url}/files/upload/",
+            files={"file": (filename, file_bytes, mime_map.get(ext, "application/octet-stream"))},
+            headers=self._headers(),
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json()["files"][0]["url"]

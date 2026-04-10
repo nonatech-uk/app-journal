@@ -170,6 +170,17 @@ export default function MemoirDetail() {
 
   const images = memoir.attachments.filter(a => a.type === 'jpeg' || a.type === 'png')
   const audio = memoir.attachments.filter(a => a.type === 'audio')
+  const videos = memoir.attachments.filter(a => ['mov', 'mp4', 'webm', 'ogg'].includes(a.type))
+  const docs = memoir.attachments.filter(a => !['jpeg', 'png', 'audio', 'mov', 'mp4', 'webm', 'ogg'].includes(a.type))
+
+  const copyLink = (att: typeof memoir.attachments[0]) => {
+    const isImage = att.type === 'jpeg' || att.type === 'png'
+    const name = att.filename || `attachment-${att.id}`
+    const link = isImage
+      ? `![${name}](/api/v1/media/${att.id})`
+      : `[${name}](/api/v1/media/${att.id})`
+    navigator.clipboard.writeText(link)
+  }
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -398,39 +409,89 @@ export default function MemoirDetail() {
         )}
       </div>
 
-      {/* Photos */}
-      {images.length > 0 && (
+      {/* Attachments — unified section for all media types */}
+      {memoir.attachments.length > 0 && (
         <div className="mb-6">
-          <h3 className="text-sm font-medium text-text-secondary mb-3">Photos ({images.length})</h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {images.map(att => (
-              <div key={att.id} className="relative group">
-                <img src={att.thumbnail_url} alt={att.caption || ''} loading="lazy"
-                  className="w-full aspect-square object-cover rounded-lg" />
-                {!editing ? null : (
-                  <button onClick={() => deleteAttMutation.mutate(att.id)}
-                    className="absolute top-1 right-1 w-6 h-6 bg-black/60 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity">
-                    x
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+          <h3 className="text-sm font-medium text-text-secondary mb-3">Attachments ({memoir.attachments.length})</h3>
 
-      {/* Voice notes */}
-      {audio.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-text-secondary mb-3">Voice Notes ({audio.length})</h3>
-          {audio.map(att => (
-            <div key={att.id} className="bg-bg-card border border-border rounded-lg p-3 mb-2">
-              <audio controls src={att.media_url} className="w-full mb-1" />
-              {att.transcription && (
-                <p className="text-xs text-text-secondary italic">{att.transcription}</p>
-              )}
+          {/* Images grid */}
+          {images.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
+              {images.map(att => (
+                <div key={att.id} className="relative group">
+                  <img src={att.thumbnail_url} alt={att.caption || ''} loading="lazy"
+                    className="w-full aspect-square object-cover rounded-lg" />
+                  <div className="absolute bottom-1 left-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => copyLink(att)}
+                      className="px-1.5 py-0.5 bg-black/60 text-white rounded text-xs">Link</button>
+                    {editing && (
+                      <button onClick={() => deleteAttMutation.mutate(att.id)}
+                        className="px-1.5 py-0.5 bg-red-600/80 text-white rounded text-xs ml-auto">x</button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+
+          {/* Documents and other files */}
+          {docs.length > 0 && (
+            <div className="space-y-1 mb-3">
+              {docs.map(att => (
+                <div key={att.id} className="flex items-center gap-2 bg-bg-card border border-border rounded-lg px-3 py-2">
+                  <span className="text-xs font-mono bg-bg-hover px-1.5 py-0.5 rounded uppercase">{att.type}</span>
+                  <a href={att.media_url} target="_blank" rel="noopener noreferrer"
+                    className="text-sm text-accent hover:text-accent-hover truncate flex-1">{att.filename || `file-${att.id}`}</a>
+                  <button onClick={() => copyLink(att)}
+                    className="text-xs text-text-secondary hover:text-accent px-2 py-0.5 border border-border rounded">Link</button>
+                  {editing && (
+                    <button onClick={() => deleteAttMutation.mutate(att.id)}
+                      className="text-xs text-danger px-2 py-0.5">x</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Videos */}
+          {videos.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {videos.map(att => (
+                <div key={att.id} className="bg-bg-card border border-border rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-mono bg-bg-hover px-1.5 py-0.5 rounded uppercase">{att.type}</span>
+                    <span className="text-sm text-text-primary truncate flex-1">{att.filename || `video-${att.id}`}</span>
+                    <button onClick={() => copyLink(att)}
+                      className="text-xs text-text-secondary hover:text-accent px-2 py-0.5 border border-border rounded">Link</button>
+                    {editing && (
+                      <button onClick={() => deleteAttMutation.mutate(att.id)}
+                        className="text-xs text-danger px-2 py-0.5">x</button>
+                    )}
+                  </div>
+                  <video controls src={att.media_url} className="w-full rounded" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Audio / voice notes */}
+          {audio.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {audio.map(att => (
+                <div key={att.id} className="bg-bg-card border border-border rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs text-text-secondary">Voice note</span>
+                    <button onClick={() => copyLink(att)}
+                      className="text-xs text-text-secondary hover:text-accent px-2 py-0.5 border border-border rounded">Link</button>
+                  </div>
+                  <audio controls src={att.media_url} className="w-full mb-1" />
+                  {att.transcription && (
+                    <p className="text-xs text-text-secondary italic">{att.transcription}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -446,8 +507,8 @@ export default function MemoirDetail() {
           {showImmich ? 'Cancel' : 'Add from Immich'}
         </button>
         <label className="px-3 py-1.5 text-xs bg-bg-card border border-border rounded hover:border-accent/30 cursor-pointer">
-          Upload Photo
-          <input type="file" accept="image/*" className="hidden"
+          Upload File
+          <input type="file" className="hidden"
             onChange={e => { if (e.target.files?.[0]) uploadMutation.mutate(e.target.files[0]) }} />
         </label>
         {memoir.start_year && (

@@ -516,15 +516,19 @@ def generate_excerpt_endpoint(memoir_id: int, conn=Depends(get_conn), _user=Depe
     return {"excerpt": excerpt}
 
 
+_IMAGE_TYPES = {"jpeg", "png", "gif"}
+_VIDEO_TYPES = {"mov", "mp4", "webm", "ogg"}
+_DOC_TYPES = {"pdf", "doc", "docx", "xls", "xlsx", "txt", "csv"}
+
+
 def _upload_attachment_to_ghost(ghost, cur, attachment_id: int, media_root: str) -> str | None:
-    """Upload a journal attachment image to Ghost, return the Ghost URL."""
+    """Upload a journal attachment to Ghost (image, video, or file). Return the Ghost URL."""
     from pathlib import Path
     import logging
 
     try:
-        # Get file path from DB
         cur.execute("""
-            SELECT a.local_path, a.type, e.uuid
+            SELECT a.local_path, a.type, a.filename, e.uuid
             FROM attachment a
             JOIN entry e ON e.id = a.entry_id
             WHERE a.id = %s
@@ -533,29 +537,37 @@ def _upload_attachment_to_ghost(ghost, cur, attachment_id: int, media_root: str)
         if not row:
             return None
 
-        local_path, att_type, entry_uuid = row
-        ext = "jpg" if att_type == "jpeg" else (att_type or "jpg")
+        local_path, att_type, orig_filename, entry_uuid = row
+        ext = "jpg" if att_type == "jpeg" else (att_type or "bin")
 
-        # Build full path
-        if local_path:
-            full_path = Path(media_root) / local_path
-        else:
+        if not local_path:
             return None
-
+        full_path = Path(media_root) / local_path
         if not full_path.exists():
             logging.getLogger(__name__).warning("Attachment file not found: %s", full_path)
             return None
 
-        image_bytes = full_path.read_bytes()
-        return ghost.upload_image(image_bytes, f"memoir-{attachment_id}.{ext}")
+        file_bytes = full_path.read_bytes()
+        upload_name = orig_filename or f"memoir-{attachment_id}.{ext}"
+
+        if att_type in _IMAGE_TYPES:
+            return ghost.upload_image(file_bytes, upload_name)
+        elif att_type in _VIDEO_TYPES:
+            return ghost.upload_media(file_bytes, upload_name)
+        elif att_type in _DOC_TYPES:
+            return ghost.upload_file(file_bytes, upload_name)
+        else:
+            # Try as generic file
+            return ghost.upload_file(file_bytes, upload_name)
     except Exception as e:
         logging.getLogger(__name__).warning("Failed to upload attachment %d to Ghost: %s", attachment_id, e)
         return None
 
 
 def _memoir_to_html(cur, memoir_id: int, ghost=None, media_root: str = "", exclude_attachment_id: int | None = None) -> str:
-    """Convert memoir content to HTML for Ghost. If ghost client provided, uploads images."""
+    """Convert memoir content to HTML for Ghost. Uploads all media types."""
     import markdown as md
+    import re
 
     cur.execute("SELECT entry_id, title, description FROM memoir WHERE id = %s", (memoir_id,))
     row = cur.fetchone()
@@ -568,35 +580,79 @@ def _memoir_to_html(cur, memoir_id: int, ghost=None, media_root: str = "", exclu
         parts.append(f"<p><em>{description}</em></p>")
 
     # Get markdown content from backing entry
+    html_body = ""
     if entry_id:
         cur.execute("SELECT markdown_text FROM entry WHERE id = %s", (entry_id,))
         e = cur.fetchone()
         if e and e[0]:
-            parts.append(md.markdown(e[0], extensions=["extra", "nl2br"]))
+            html_body = md.markdown(e[0], extensions=["extra", "nl2br"])
 
-    # Append images as figures — upload to Ghost if client provided
+    # Find inline attachment references in the HTML (pattern: /api/v1/media/{id})
+    referenced_ids = set()
+    for m in re.finditer(r"/api/v1/media/(\d+)", html_body):
+        referenced_ids.add(int(m.group(1)))
+
+    # Upload inline-referenced attachments to Ghost and rewrite URLs
+    if ghost and referenced_ids:
+        for att_id in referenced_ids:
+            ghost_url = _upload_attachment_to_ghost(ghost, cur, att_id, media_root)
+            if ghost_url:
+                html_body = html_body.replace(f"/api/v1/media/{att_id}", ghost_url)
+
+    parts.append(html_body)
+
+    # Get ALL attachments for this entry
     if entry_id:
         cur.execute("""
-            SELECT id, type, caption FROM attachment
-            WHERE entry_id = %s AND type IN ('jpeg', 'png')
+            SELECT id, type, caption, filename FROM attachment
+            WHERE entry_id = %s
             ORDER BY order_in_entry, id
         """, (entry_id,))
-        for att in cur.fetchall():
-            att_id, att_type, caption = att
-            if att_id == exclude_attachment_id:
-                continue  # skip feature image — Ghost renders it as hero
-            caption = caption or ""
+        all_attachments = cur.fetchall()
 
-            if ghost:
-                ghost_url = _upload_attachment_to_ghost(ghost, cur, att_id, media_root)
-                img_url = ghost_url or f"https://journal.mees.st/api/v1/media/{att_id}"
-            else:
-                img_url = f"https://journal.mees.st/api/v1/media/{att_id}"
+        # Separate into referenced (already in HTML) and unreferenced
+        unreferenced = [a for a in all_attachments
+                        if a[0] not in referenced_ids and a[0] != exclude_attachment_id]
 
-            parts.append(f'<figure><img src="{img_url}" alt="{caption}"/>')
-            if caption:
-                parts.append(f"<figcaption>{caption}</figcaption>")
-            parts.append("</figure>")
+        if unreferenced:
+            # Sort: documents first, then images, then video
+            docs = [a for a in unreferenced if a[1] in _DOC_TYPES]
+            images = [a for a in unreferenced if a[1] in _IMAGE_TYPES]
+            videos = [a for a in unreferenced if a[1] in _VIDEO_TYPES]
+            other = [a for a in unreferenced if a[1] not in _DOC_TYPES | _IMAGE_TYPES | _VIDEO_TYPES and a[1] != "audio"]
+
+            # Documents as download links
+            for att_id, att_type, caption, filename in docs + other:
+                display_name = filename or caption or f"Download ({att_type})"
+                if ghost:
+                    url = _upload_attachment_to_ghost(ghost, cur, att_id, media_root)
+                    url = url or f"https://journal.mees.st/api/v1/media/{att_id}"
+                else:
+                    url = f"https://journal.mees.st/api/v1/media/{att_id}"
+                parts.append(f'<p><a href="{url}" download>{display_name}</a></p>')
+
+            # Images as figures
+            for att_id, att_type, caption, filename in images:
+                caption = caption or ""
+                if ghost:
+                    url = _upload_attachment_to_ghost(ghost, cur, att_id, media_root)
+                    url = url or f"https://journal.mees.st/api/v1/media/{att_id}"
+                else:
+                    url = f"https://journal.mees.st/api/v1/media/{att_id}"
+                parts.append(f'<figure><img src="{url}" alt="{caption}"/>')
+                if caption:
+                    parts.append(f"<figcaption>{caption}</figcaption>")
+                parts.append("</figure>")
+
+            # Videos as download links (Ghost doesn't embed external video well)
+            for att_id, att_type, caption, filename in videos:
+                display_name = filename or caption or f"Video ({att_type})"
+                if ghost:
+                    url = _upload_attachment_to_ghost(ghost, cur, att_id, media_root)
+                    url = url or f"https://journal.mees.st/api/v1/media/{att_id}"
+                else:
+                    url = f"https://journal.mees.st/api/v1/media/{att_id}"
+                parts.append(f'<p><a href="{url}">{display_name}</a></p>')
 
     return "\n".join(parts)
 
