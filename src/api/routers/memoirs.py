@@ -462,6 +462,60 @@ def _get_ghost_client():
     return GhostClient(settings.ghost_api_url, settings.ghost_admin_key)
 
 
+def _generate_excerpt(cur, memoir_id: int, title: str) -> str | None:
+    """Use Claude to generate a compelling excerpt from the memoir content."""
+    import logging
+    try:
+        import anthropic
+        if not settings.anthropic_api_key:
+            return None
+
+        cur.execute("SELECT entry_id FROM memoir WHERE id = %s", (memoir_id,))
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return None
+
+        cur.execute("SELECT markdown_text FROM entry WHERE id = %s", (row[0],))
+        e = cur.fetchone()
+        if not e or not e[0]:
+            return None
+
+        content = e[0][:3000]  # cap for token efficiency
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=100,
+            messages=[{
+                "role": "user",
+                "content": f"Write a compelling 1-2 sentence excerpt for a blog post titled \"{title}\". The excerpt should hook the reader and hint at the story without giving it away. Keep it under 300 characters. Return ONLY the plain text excerpt, no markdown, no headings, no character count, no quotes.",
+            }],
+        )
+        excerpt = response.content[0].text.strip().strip('"')
+        logging.getLogger(__name__).info("Generated excerpt for memoir %d: %s", memoir_id, excerpt[:80])
+        return excerpt
+    except Exception as e:
+        logging.getLogger(__name__).warning("Failed to generate excerpt: %s", e)
+        return None
+
+
+@router.post("/memoirs/{memoir_id}/generate-excerpt")
+def generate_excerpt_endpoint(memoir_id: int, conn=Depends(get_conn), _user=Depends(require_admin)):
+    """Generate a compelling excerpt using Claude and save it."""
+    cur = conn.cursor()
+    cur.execute("SELECT title FROM memoir WHERE id = %s", (memoir_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Memoir not found")
+
+    excerpt = _generate_excerpt(cur, memoir_id, row[0])
+    if not excerpt:
+        raise HTTPException(500, "Failed to generate excerpt")
+
+    cur.execute("UPDATE memoir SET meta_description = %s, modified_at = now() WHERE id = %s", (excerpt, memoir_id))
+    conn.commit()
+    return {"excerpt": excerpt}
+
+
 def _upload_attachment_to_ghost(ghost, cur, attachment_id: int, media_root: str) -> str | None:
     """Upload a journal attachment image to Ghost, return the Ghost URL."""
     from pathlib import Path
@@ -564,6 +618,8 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
     ghost_post_id, title, slug, visibility, tags, featured, meta_desc, parent_id, feat_att_id, pub_date = row
 
     vis = body.visibility or visibility or "members"
+
+    # Use meta_description as custom_excerpt (generate separately via /generate-excerpt)
 
     # Build tags — include parent title as series tag for sub-pages
     all_tags = list(tags or [])

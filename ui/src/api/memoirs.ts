@@ -60,3 +60,7 @@ export function publishAll(id: number, options?: { status?: string; visibility?:
 export function unpublishMemoir(id: number) {
   return apiFetch<{ unpublished: number }>(`/memoirs/${id}/unpublish`, { method: 'POST' })
 }
+
+export function generateExcerpt(id: number) {
+  return apiFetch<{ excerpt: string }>(`/memoirs/${id}/generate-excerpt`, { method: 'POST' })
+}

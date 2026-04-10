@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchMemoir, updateMemoir, deleteMemoir, createMemoir, autoLinkEntries, publishMemoir, publishAll, unpublishMemoir } from '../api/memoirs.ts'
+import { fetchMemoir, updateMemoir, deleteMemoir, createMemoir, autoLinkEntries, publishMemoir, publishAll, unpublishMemoir, generateExcerpt } from '../api/memoirs.ts'
 import { uploadVoiceNote, attachImmichPhotos, deleteAttachment, uploadAttachment } from '../api/entries'
 import Markdown from 'react-markdown'
 import VoiceRecorder from '../components/VoiceRecorder'
@@ -18,6 +18,8 @@ export default function MemoirDetail() {
   const [immichIds, setImmichIds] = useState<string[]>([])
   const [localTags, setLocalTags] = useState<string | null>(null)
   const [localSlug, setLocalSlug] = useState<string | null>(null)
+  const [localExcerpt, setLocalExcerpt] = useState<string | null>(null)
+  const [publishOn, setPublishOn] = useState('')
 
   const { data: memoir, isLoading } = useQuery({
     queryKey: ['memoir', id],
@@ -115,6 +117,14 @@ export default function MemoirDetail() {
   const unpublishMutation = useMutation({
     mutationFn: () => unpublishMemoir(Number(id)),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['memoir', id] }),
+  })
+
+  const excerptMutation = useMutation({
+    mutationFn: () => generateExcerpt(Number(id)),
+    onSuccess: (data) => {
+      setLocalExcerpt(data.excerpt)
+      queryClient.invalidateQueries({ queryKey: ['memoir', id] })
+    },
   })
 
   const autoLinkMutation = useMutation({
@@ -334,6 +344,35 @@ export default function MemoirDetail() {
                 </select>
               </div>
             )}
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <label className="text-text-secondary">Excerpt</label>
+              <button
+                onClick={() => excerptMutation.mutate()}
+                disabled={excerptMutation.isPending}
+                className="px-2 py-0.5 text-accent border border-accent/30 rounded hover:bg-accent/10 disabled:opacity-50"
+              >
+                {excerptMutation.isPending ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
+            <textarea
+              value={localExcerpt ?? memoir.meta_description ?? ''}
+              onChange={e => setLocalExcerpt(e.target.value)}
+              onBlur={e => { updateMemoir(Number(id), { meta_description: e.target.value || null }).then(() => { queryClient.invalidateQueries({ queryKey: ['memoir', id] }); setLocalExcerpt(null) }) }}
+              rows={2}
+              placeholder="A compelling excerpt for the blog post..."
+              className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="text-text-secondary block mb-0.5">Publish on</label>
+            <input
+              type="datetime-local"
+              value={publishOn}
+              onChange={e => setPublishOn(e.target.value)}
+              className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+            />
           </div>
         </div>
         {memoir.ghost_post_id && (

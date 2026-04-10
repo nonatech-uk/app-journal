@@ -128,6 +128,8 @@ class GhostClient:
             headers={**self._headers(), "Content-Type": "application/json"},
             timeout=30,
         )
+        if resp.status_code != 200:
+            log.error("Ghost update %s failed (%d): %s", post_id, resp.status_code, resp.text[:500])
         resp.raise_for_status()
         return resp.json()["posts"][0]
 
