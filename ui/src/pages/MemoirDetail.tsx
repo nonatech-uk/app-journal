@@ -284,19 +284,35 @@ export default function MemoirDetail() {
             </>
           )}
         </div>
-        <div className="flex gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-2 text-xs mb-2">
           <input
             value={memoir.tags?.join(', ') || ''}
-            onChange={e => updateMemoir(Number(id), { tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+            onBlur={e => updateMemoir(Number(id), { tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
             placeholder="Tags (comma-separated)"
-            className="flex-1 bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
           />
           <input
             value={memoir.slug || ''}
-            onChange={e => updateMemoir(Number(id), { slug: e.target.value }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+            onBlur={e => updateMemoir(Number(id), { slug: e.target.value }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
             placeholder="URL slug"
-            className="w-40 bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
           />
+          <input
+            type="date"
+            value={memoir.published_date || ''}
+            onChange={e => updateMemoir(Number(id), { published_date: e.target.value || null }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+          />
+          <select
+            value={memoir.feature_image_attachment_id ?? ''}
+            onChange={e => updateMemoir(Number(id), { feature_image_attachment_id: e.target.value ? Number(e.target.value) : null }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+          >
+            <option value="">No featured image</option>
+            {images.map(att => (
+              <option key={att.id} value={att.id}>{att.filename || `Photo ${att.id}`}</option>
+            ))}
+          </select>
         </div>
         {memoir.ghost_post_id && (
           <a href={`https://blog.mees.st/${memoir.slug || ''}`} target="_blank" rel="noopener noreferrer"

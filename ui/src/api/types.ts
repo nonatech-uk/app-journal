@@ -449,6 +449,8 @@ export interface MemoirSummary {
   featured: boolean
   slug: string | null
   meta_description: string | null
+  published_date: string | null
+  feature_image_attachment_id: number | null
   child_count: number
   attachment_count: number
 }

@@ -33,6 +33,8 @@ class MemoirCreate(BaseModel):
     slug: str | None = None
     meta_description: str | None = None
     ghost_visibility: str = "members"
+    published_date: str | None = None
+    feature_image_attachment_id: int | None = None
 
 
 class MemoirUpdate(BaseModel):
@@ -51,6 +53,8 @@ class MemoirUpdate(BaseModel):
     slug: str | None = "__UNSET__"
     meta_description: str | None = "__UNSET__"
     ghost_visibility: str | None = "__UNSET__"
+    published_date: str | None = "__UNSET__"
+    feature_image_attachment_id: int | None = -1  # sentinel
 
 
 class ReorderItem(BaseModel):
@@ -67,7 +71,8 @@ _MEMOIR_COLS = """m.id, m.parent_id, m.title, m.start_year, m.start_month,
                m.entry_id, m.cover_asset_id, m.sort_order,
                m.created_at, m.modified_at,
                m.ghost_post_id, m.ghost_status, m.ghost_visibility,
-               m.ghost_published_at, m.tags, m.featured, m.slug, m.meta_description"""
+               m.ghost_published_at, m.tags, m.featured, m.slug, m.meta_description,
+               m.published_date, m.feature_image_attachment_id"""
 
 
 def _memoir_summary(row, child_count: int = 0, attachment_count: int = 0) -> dict:
@@ -94,6 +99,8 @@ def _memoir_summary(row, child_count: int = 0, attachment_count: int = 0) -> dic
         "featured": row[19],
         "slug": row[20],
         "meta_description": row[21],
+        "published_date": row[22],
+        "feature_image_attachment_id": row[23],
         "child_count": child_count,
         "attachment_count": attachment_count,
     }
@@ -206,7 +213,7 @@ def list_memoirs(conn=Depends(get_conn), _user=Depends(get_current_user)):
     """)
     items = []
     for row in cur.fetchall():
-        s = _memoir_summary(row, child_count=row[22], attachment_count=row[23])
+        s = _memoir_summary(row, child_count=row[24], attachment_count=row[25])
         items.append(s)
     return {"items": items, "total": len(items)}
 
@@ -247,13 +254,15 @@ def create_memoir(body: MemoirCreate, conn=Depends(get_conn), _user=Depends(requ
         """INSERT INTO memoir (parent_id, title, start_year, start_month,
                                end_year, end_month, date_label, description,
                                entry_id, cover_asset_id, sort_order,
-                               tags, featured, slug, meta_description, ghost_visibility)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                               tags, featured, slug, meta_description, ghost_visibility,
+                               published_date, feature_image_attachment_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
            RETURNING id""",
         (body.parent_id, body.title, body.start_year, body.start_month,
          body.end_year, body.end_month, body.date_label, body.description,
          entry_id, body.cover_asset_id, body.sort_order,
-         body.tags or [], body.featured, slug, body.meta_description, body.ghost_visibility),
+         body.tags or [], body.featured, slug, body.meta_description, body.ghost_visibility,
+         body.published_date, body.feature_image_attachment_id),
     )
     memoir_id = cur.fetchone()[0]
     conn.commit()
@@ -318,6 +327,12 @@ def update_memoir(memoir_id: int, body: MemoirUpdate, conn=Depends(get_conn), _u
     if body.ghost_visibility != "__UNSET__":
         updates.append("ghost_visibility = %s")
         params.append(body.ghost_visibility)
+    if body.published_date != "__UNSET__":
+        updates.append("published_date = %s")
+        params.append(body.published_date)
+    if body.feature_image_attachment_id != -1:
+        updates.append("feature_image_attachment_id = %s")
+        params.append(body.feature_image_attachment_id)
 
     if updates:
         updates.append("modified_at = now()")
@@ -447,8 +462,38 @@ def _get_ghost_client():
     return GhostClient(settings.ghost_api_url, settings.ghost_admin_key)
 
 
-def _memoir_to_html(cur, memoir_id: int) -> str:
-    """Convert memoir content to HTML for Ghost."""
+def _upload_attachment_to_ghost(ghost, attachment_id: int, media_root: str) -> str | None:
+    """Upload a journal attachment image to Ghost, return the Ghost URL."""
+    import os
+    from pathlib import Path
+
+    # Try to find the file on disk
+    # attachment.local_path is relative to media_root
+    try:
+        from src.api.deps import get_conn as _gc
+        # We need a separate connection since we're called within a cursor context
+        # Instead, read the file directly using the attachment_id pattern
+        # The media endpoint serves from media_root/{entry_uuid}/{filename}
+        # Simplest: read via the local HTTP endpoint
+        import httpx
+        resp = httpx.get(
+            f"http://localhost:8000/api/v1/media/{attachment_id}",
+            timeout=10,
+            follow_redirects=True,
+        )
+        if resp.status_code != 200:
+            return None
+        content_type = resp.headers.get("content-type", "image/jpeg")
+        ext = "jpg" if "jpeg" in content_type else "png"
+        return ghost.upload_image(resp.content, f"memoir-{attachment_id}.{ext}")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to upload attachment %d to Ghost: %s", attachment_id, e)
+        return None
+
+
+def _memoir_to_html(cur, memoir_id: int, ghost=None, media_root: str = "") -> str:
+    """Convert memoir content to HTML for Ghost. If ghost client provided, uploads images."""
     import markdown as md
 
     cur.execute("SELECT entry_id, title, description FROM memoir WHERE id = %s", (memoir_id,))
@@ -468,7 +513,7 @@ def _memoir_to_html(cur, memoir_id: int) -> str:
         if e and e[0]:
             parts.append(md.markdown(e[0], extensions=["extra", "nl2br"]))
 
-    # Append images as figures
+    # Append images as figures — upload to Ghost if client provided
     if entry_id:
         cur.execute("""
             SELECT id, type, caption FROM attachment
@@ -476,8 +521,15 @@ def _memoir_to_html(cur, memoir_id: int) -> str:
             ORDER BY order_in_entry, id
         """, (entry_id,))
         for att in cur.fetchall():
-            img_url = f"https://journal.mees.st/api/v1/media/{att[0]}"
-            caption = att[2] or ""
+            att_id, att_type, caption = att
+            caption = caption or ""
+
+            if ghost:
+                ghost_url = _upload_attachment_to_ghost(ghost, att_id, media_root)
+                img_url = ghost_url or f"https://journal.mees.st/api/v1/media/{att_id}"
+            else:
+                img_url = f"https://journal.mees.st/api/v1/media/{att_id}"
+
             parts.append(f'<figure><img src="{img_url}" alt="{caption}"/>')
             if caption:
                 parts.append(f"<figcaption>{caption}</figcaption>")
@@ -494,13 +546,13 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
 
     cur.execute("""
         SELECT ghost_post_id, title, slug, ghost_visibility, tags, featured,
-               meta_description, parent_id
+               meta_description, parent_id, feature_image_attachment_id, published_date
         FROM memoir WHERE id = %s
     """, (memoir_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(404, "Memoir not found")
-    ghost_post_id, title, slug, visibility, tags, featured, meta_desc, parent_id = row
+    ghost_post_id, title, slug, visibility, tags, featured, meta_desc, parent_id, feat_att_id, pub_date = row
 
     vis = body.visibility or visibility or "members"
 
@@ -512,23 +564,27 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
         if parent and parent[0] not in all_tags:
             all_tags.insert(0, parent[0])
 
-    html = _memoir_to_html(cur, memoir_id)
+    # Convert content to HTML, uploading images to Ghost
+    html = _memoir_to_html(cur, memoir_id, ghost=ghost, media_root=settings.media_root)
+
+    # Upload feature image to Ghost if set
+    feature_image_url = None
+    if feat_att_id:
+        feature_image_url = _upload_attachment_to_ghost(ghost, feat_att_id, settings.media_root)
+
+    post_kwargs: dict = {
+        "title": title, "html": html, "slug": slug,
+        "status": body.status, "visibility": vis,
+        "tags": all_tags, "featured": featured,
+        "custom_excerpt": meta_desc,
+    }
+    if feature_image_url:
+        post_kwargs["feature_image"] = feature_image_url
 
     if ghost_post_id:
-        post = ghost.update_post(
-            ghost_post_id,
-            title=title, html=html, slug=slug,
-            status=body.status, visibility=vis,
-            tags=all_tags, featured=featured,
-            custom_excerpt=meta_desc,
-        )
+        post = ghost.update_post(ghost_post_id, **post_kwargs)
     else:
-        post = ghost.create_post(
-            title=title, html=html, slug=slug,
-            status=body.status, visibility=vis,
-            tags=all_tags, featured=featured,
-            custom_excerpt=meta_desc,
-        )
+        post = ghost.create_post(**post_kwargs)
 
     cur.execute("""
         UPDATE memoir SET ghost_post_id = %s, ghost_status = %s,
