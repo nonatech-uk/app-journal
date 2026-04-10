@@ -441,6 +441,14 @@ export interface MemoirSummary {
   sort_order: number
   created_at: string
   modified_at: string
+  ghost_post_id: string | null
+  ghost_status: string | null
+  ghost_visibility: string | null
+  ghost_published_at: string | null
+  tags: string[]
+  featured: boolean
+  slug: string | null
+  meta_description: string | null
   child_count: number
   attachment_count: number
 }

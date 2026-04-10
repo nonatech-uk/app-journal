@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchMemoir, updateMemoir, deleteMemoir, createMemoir, autoLinkEntries } from '../api/memoirs.ts'
+import { fetchMemoir, updateMemoir, deleteMemoir, createMemoir, autoLinkEntries, publishMemoir, publishAll, unpublishMemoir } from '../api/memoirs.ts'
 import { uploadVoiceNote, attachImmichPhotos, deleteAttachment, uploadAttachment } from '../api/entries'
 import Markdown from 'react-markdown'
 import VoiceRecorder from '../components/VoiceRecorder'
@@ -97,6 +97,21 @@ export default function MemoirDetail() {
       if (!memoir?.entry_id) throw new Error('No backing entry')
       return deleteAttachment(memoir.entry_id, attachmentId)
     },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['memoir', id] }),
+  })
+
+  const publishMutation = useMutation({
+    mutationFn: (opts: { status?: string; visibility?: string }) => publishMemoir(Number(id), opts),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['memoir', id] }),
+  })
+
+  const publishAllMutation = useMutation({
+    mutationFn: (opts: { status?: string; visibility?: string }) => publishAll(Number(id), opts),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['memoir', id] }),
+  })
+
+  const unpublishMutation = useMutation({
+    mutationFn: () => unpublishMemoir(Number(id)),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['memoir', id] }),
   })
 
@@ -223,6 +238,73 @@ export default function MemoirDetail() {
           )}
         </div>
       )}
+
+      {/* Publish to Ghost */}
+      <div className="bg-bg-card border border-border rounded-lg p-4 mb-6">
+        <h3 className="text-sm font-medium text-text-secondary mb-3">Publish to Blog</h3>
+        <div className="flex items-center gap-3 mb-3">
+          <select
+            value={memoir.ghost_visibility || 'members'}
+            onChange={e => updateMemoir(Number(id), { ghost_visibility: e.target.value }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+            className="bg-bg-secondary border border-border rounded px-2 py-1 text-xs text-text-primary"
+          >
+            <option value="public">Public</option>
+            <option value="members">Members Only</option>
+            <option value="paid">Paid Subscribers</option>
+          </select>
+          {memoir.ghost_status === 'published' ? (
+            <>
+              <span className="text-xs text-success">Published</span>
+              <button onClick={() => publishMutation.mutate({ visibility: memoir.ghost_visibility || undefined })}
+                disabled={publishMutation.isPending}
+                className="px-3 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50">
+                {publishMutation.isPending ? '...' : 'Update'}
+              </button>
+              <button onClick={() => unpublishMutation.mutate()}
+                disabled={unpublishMutation.isPending}
+                className="px-3 py-1 text-xs text-warning border border-warning/30 rounded hover:bg-warning/10">
+                Unpublish
+              </button>
+            </>
+          ) : (
+            <>
+              {memoir.ghost_status === 'draft' && <span className="text-xs text-text-secondary">Draft on Ghost</span>}
+              <button onClick={() => publishMutation.mutate({ visibility: memoir.ghost_visibility || undefined })}
+                disabled={publishMutation.isPending}
+                className="px-3 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50">
+                {publishMutation.isPending ? '...' : 'Publish'}
+              </button>
+              {!memoir.parent_id && memoir.child_count > 0 && (
+                <button onClick={() => publishAllMutation.mutate({ visibility: memoir.ghost_visibility || undefined })}
+                  disabled={publishAllMutation.isPending}
+                  className="px-3 py-1 text-xs bg-bg-hover border border-border rounded hover:border-accent/30">
+                  {publishAllMutation.isPending ? '...' : `Publish All (${memoir.child_count + 1})`}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+        <div className="flex gap-2 text-xs">
+          <input
+            value={memoir.tags?.join(', ') || ''}
+            onChange={e => updateMemoir(Number(id), { tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+            placeholder="Tags (comma-separated)"
+            className="flex-1 bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+          />
+          <input
+            value={memoir.slug || ''}
+            onChange={e => updateMemoir(Number(id), { slug: e.target.value }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+            placeholder="URL slug"
+            className="w-40 bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+          />
+        </div>
+        {memoir.ghost_post_id && (
+          <a href={`https://blog.mees.st/${memoir.slug || ''}`} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-accent hover:text-accent-hover mt-2 inline-block">
+            View on blog
+          </a>
+        )}
+      </div>
 
       {/* Photos */}
       {images.length > 0 && (

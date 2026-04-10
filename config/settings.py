@@ -48,6 +48,10 @@ class Settings(BaseAppSettings):
     linkwarden_url: str = "http://192.168.128.9:3000"
     linkwarden_api_key: str = ""
 
+    # Ghost blog
+    ghost_api_url: str = "https://blog.mees.st/ghost/api/admin"
+    ghost_admin_key: str = ""
+
     # Pipeline ingest
     pipeline_secret: str = ""
 

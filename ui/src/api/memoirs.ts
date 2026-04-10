@@ -42,3 +42,21 @@ export function deleteMemoir(id: number) {
 export function autoLinkEntries(id: number) {
   return apiFetch<{ linked: number }>(`/memoirs/${id}/entries/auto`, { method: 'POST' })
 }
+
+export function publishMemoir(id: number, options?: { status?: string; visibility?: string }) {
+  return apiFetch<{ ghost_post_id: string; ghost_status: string; ghost_url: string }>(`/memoirs/${id}/publish`, {
+    method: 'POST',
+    body: JSON.stringify(options ?? {}),
+  })
+}
+
+export function publishAll(id: number, options?: { status?: string; visibility?: string }) {
+  return apiFetch<{ total_published: number }>(`/memoirs/${id}/publish-all`, {
+    method: 'POST',
+    body: JSON.stringify(options ?? {}),
+  })
+}
+
+export function unpublishMemoir(id: number) {
+  return apiFetch<{ unpublished: number }>(`/memoirs/${id}/unpublish`, { method: 'POST' })
+}

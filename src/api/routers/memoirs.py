@@ -28,6 +28,11 @@ class MemoirCreate(BaseModel):
     markdown_text: str | None = None
     cover_asset_id: str | None = None
     sort_order: int = 0
+    tags: list[str] | None = None
+    featured: bool = False
+    slug: str | None = None
+    meta_description: str | None = None
+    ghost_visibility: str = "members"
 
 
 class MemoirUpdate(BaseModel):
@@ -41,6 +46,11 @@ class MemoirUpdate(BaseModel):
     markdown_text: str | None = "__UNSET__"
     cover_asset_id: str | None = "__UNSET__"
     sort_order: int | None = None
+    tags: list[str] | None = None  # None = not provided, [] = clear
+    featured: bool | None = None
+    slug: str | None = "__UNSET__"
+    meta_description: str | None = "__UNSET__"
+    ghost_visibility: str | None = "__UNSET__"
 
 
 class ReorderItem(BaseModel):
@@ -51,6 +61,14 @@ class ReorderItem(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_MEMOIR_COLS = """m.id, m.parent_id, m.title, m.start_year, m.start_month,
+               m.end_year, m.end_month, m.date_label, m.description,
+               m.entry_id, m.cover_asset_id, m.sort_order,
+               m.created_at, m.modified_at,
+               m.ghost_post_id, m.ghost_status, m.ghost_visibility,
+               m.ghost_published_at, m.tags, m.featured, m.slug, m.meta_description"""
+
 
 def _memoir_summary(row, child_count: int = 0, attachment_count: int = 0) -> dict:
     return {
@@ -68,6 +86,14 @@ def _memoir_summary(row, child_count: int = 0, attachment_count: int = 0) -> dic
         "sort_order": row[11],
         "created_at": row[12],
         "modified_at": row[13],
+        "ghost_post_id": row[14],
+        "ghost_status": row[15],
+        "ghost_visibility": row[16],
+        "ghost_published_at": row[17],
+        "tags": row[18] or [],
+        "featured": row[19],
+        "slug": row[20],
+        "meta_description": row[21],
         "child_count": child_count,
         "attachment_count": attachment_count,
     }
@@ -76,10 +102,7 @@ def _memoir_summary(row, child_count: int = 0, attachment_count: int = 0) -> dic
 def _memoir_detail(cur, memoir_id: int) -> dict:
     """Build full memoir detail including backing entry content and children."""
     cur.execute("""
-        SELECT m.id, m.parent_id, m.title, m.start_year, m.start_month,
-               m.end_year, m.end_month, m.date_label, m.description,
-               m.entry_id, m.cover_asset_id, m.sort_order,
-               m.created_at, m.modified_at
+        SELECT """ + _MEMOIR_COLS + """
         FROM memoir m WHERE m.id = %s
     """, (memoir_id,))
     row = cur.fetchone()
@@ -120,10 +143,7 @@ def _memoir_detail(cur, memoir_id: int) -> dict:
 
     # Children (sub-pages)
     cur.execute("""
-        SELECT m.id, m.parent_id, m.title, m.start_year, m.start_month,
-               m.end_year, m.end_month, m.date_label, m.description,
-               m.entry_id, m.cover_asset_id, m.sort_order,
-               m.created_at, m.modified_at
+        SELECT """ + _MEMOIR_COLS + """
         FROM memoir m WHERE m.parent_id = %s
         ORDER BY m.sort_order, m.start_year NULLS LAST, m.title
     """, (memoir_id,))
@@ -177,10 +197,7 @@ def list_memoirs(conn=Depends(get_conn), _user=Depends(get_current_user)):
     """List top-level memoirs with child counts."""
     cur = conn.cursor()
     cur.execute("""
-        SELECT m.id, m.parent_id, m.title, m.start_year, m.start_month,
-               m.end_year, m.end_month, m.date_label, m.description,
-               m.entry_id, m.cover_asset_id, m.sort_order,
-               m.created_at, m.modified_at,
+        SELECT """ + _MEMOIR_COLS + """,
                (SELECT COUNT(*) FROM memoir c WHERE c.parent_id = m.id) AS child_count,
                COALESCE((SELECT COUNT(*) FROM attachment a WHERE a.entry_id = m.entry_id), 0) AS att_count
         FROM memoir m
@@ -189,7 +206,7 @@ def list_memoirs(conn=Depends(get_conn), _user=Depends(get_current_user)):
     """)
     items = []
     for row in cur.fetchall():
-        s = _memoir_summary(row, child_count=row[14], attachment_count=row[15])
+        s = _memoir_summary(row, child_count=row[22], attachment_count=row[23])
         items.append(s)
     return {"items": items, "total": len(items)}
 
@@ -219,16 +236,24 @@ def create_memoir(body: MemoirCreate, conn=Depends(get_conn), _user=Depends(requ
     )
     entry_id = cur.fetchone()[0]
 
+    # Generate slug from title if not provided
+    slug = body.slug
+    if not slug:
+        import re
+        slug = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")
+
     # Create memoir
     cur.execute(
         """INSERT INTO memoir (parent_id, title, start_year, start_month,
                                end_year, end_month, date_label, description,
-                               entry_id, cover_asset_id, sort_order)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                               entry_id, cover_asset_id, sort_order,
+                               tags, featured, slug, meta_description, ghost_visibility)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
            RETURNING id""",
         (body.parent_id, body.title, body.start_year, body.start_month,
          body.end_year, body.end_month, body.date_label, body.description,
-         entry_id, body.cover_asset_id, body.sort_order),
+         entry_id, body.cover_asset_id, body.sort_order,
+         body.tags or [], body.featured, slug, body.meta_description, body.ghost_visibility),
     )
     memoir_id = cur.fetchone()[0]
     conn.commit()
@@ -278,6 +303,21 @@ def update_memoir(memoir_id: int, body: MemoirUpdate, conn=Depends(get_conn), _u
     if body.sort_order is not None:
         updates.append("sort_order = %s")
         params.append(body.sort_order)
+    if body.tags is not None:
+        updates.append("tags = %s")
+        params.append(body.tags)
+    if body.featured is not None:
+        updates.append("featured = %s")
+        params.append(body.featured)
+    if body.slug != "__UNSET__":
+        updates.append("slug = %s")
+        params.append(body.slug)
+    if body.meta_description != "__UNSET__":
+        updates.append("meta_description = %s")
+        params.append(body.meta_description)
+    if body.ghost_visibility != "__UNSET__":
+        updates.append("ghost_visibility = %s")
+        params.append(body.ghost_visibility)
 
     if updates:
         updates.append("modified_at = now()")
@@ -388,3 +428,174 @@ def reorder_children(memoir_id: int, items: list[ReorderItem], conn=Depends(get_
         )
     conn.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Ghost publishing
+# ---------------------------------------------------------------------------
+
+class PublishRequest(BaseModel):
+    status: str = "published"  # draft or published
+    visibility: str | None = None  # override memoir's ghost_visibility
+
+
+def _get_ghost_client():
+    """Get a Ghost API client, or raise if not configured."""
+    if not settings.ghost_admin_key:
+        raise HTTPException(500, "Ghost admin key not configured")
+    from src.services.ghost import GhostClient
+    return GhostClient(settings.ghost_api_url, settings.ghost_admin_key)
+
+
+def _memoir_to_html(cur, memoir_id: int) -> str:
+    """Convert memoir content to HTML for Ghost."""
+    import markdown as md
+
+    cur.execute("SELECT entry_id, title, description FROM memoir WHERE id = %s", (memoir_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Memoir not found")
+    entry_id, title, description = row
+
+    parts = []
+    if description:
+        parts.append(f"<p><em>{description}</em></p>")
+
+    # Get markdown content from backing entry
+    if entry_id:
+        cur.execute("SELECT markdown_text FROM entry WHERE id = %s", (entry_id,))
+        e = cur.fetchone()
+        if e and e[0]:
+            parts.append(md.markdown(e[0], extensions=["extra", "nl2br"]))
+
+    # Append images as figures
+    if entry_id:
+        cur.execute("""
+            SELECT id, type, caption FROM attachment
+            WHERE entry_id = %s AND type IN ('jpeg', 'png')
+            ORDER BY order_in_entry, id
+        """, (entry_id,))
+        for att in cur.fetchall():
+            img_url = f"https://journal.mees.st/api/v1/media/{att[0]}"
+            caption = att[2] or ""
+            parts.append(f'<figure><img src="{img_url}" alt="{caption}"/>')
+            if caption:
+                parts.append(f"<figcaption>{caption}</figcaption>")
+            parts.append("</figure>")
+
+    return "\n".join(parts)
+
+
+@router.post("/memoirs/{memoir_id}/publish")
+def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn=Depends(get_conn), _user=Depends(require_admin)):
+    """Publish or update a memoir on Ghost blog."""
+    cur = conn.cursor()
+    ghost = _get_ghost_client()
+
+    cur.execute("""
+        SELECT ghost_post_id, title, slug, ghost_visibility, tags, featured,
+               meta_description, parent_id
+        FROM memoir WHERE id = %s
+    """, (memoir_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Memoir not found")
+    ghost_post_id, title, slug, visibility, tags, featured, meta_desc, parent_id = row
+
+    vis = body.visibility or visibility or "members"
+
+    # Build tags — include parent title as series tag for sub-pages
+    all_tags = list(tags or [])
+    if parent_id:
+        cur.execute("SELECT title FROM memoir WHERE id = %s", (parent_id,))
+        parent = cur.fetchone()
+        if parent and parent[0] not in all_tags:
+            all_tags.insert(0, parent[0])
+
+    html = _memoir_to_html(cur, memoir_id)
+
+    if ghost_post_id:
+        post = ghost.update_post(
+            ghost_post_id,
+            title=title, html=html, slug=slug,
+            status=body.status, visibility=vis,
+            tags=all_tags, featured=featured,
+            custom_excerpt=meta_desc,
+        )
+    else:
+        post = ghost.create_post(
+            title=title, html=html, slug=slug,
+            status=body.status, visibility=vis,
+            tags=all_tags, featured=featured,
+            custom_excerpt=meta_desc,
+        )
+
+    cur.execute("""
+        UPDATE memoir SET ghost_post_id = %s, ghost_status = %s,
+                          ghost_published_at = %s, modified_at = now()
+        WHERE id = %s
+    """, (post["id"], post["status"], post.get("published_at"), memoir_id))
+    conn.commit()
+
+    return {
+        "ghost_post_id": post["id"],
+        "ghost_status": post["status"],
+        "ghost_url": post.get("url"),
+        "ghost_published_at": post.get("published_at"),
+    }
+
+
+@router.post("/memoirs/{memoir_id}/publish-all")
+def publish_all(memoir_id: int, body: PublishRequest = PublishRequest(), conn=Depends(get_conn), _user=Depends(require_admin)):
+    """Publish parent memoir + all children as a series."""
+    cur = conn.cursor()
+
+    cur.execute("SELECT parent_id FROM memoir WHERE id = %s", (memoir_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Memoir not found")
+    if row[0] is not None:
+        raise HTTPException(400, "Can only publish-all from a parent memoir")
+
+    parent_result = publish_memoir(memoir_id, body, conn, _user)
+
+    cur.execute("""
+        SELECT id FROM memoir WHERE parent_id = %s
+        ORDER BY sort_order, start_year NULLS LAST, title
+    """, (memoir_id,))
+    child_results = []
+    for child_row in cur.fetchall():
+        child_result = publish_memoir(child_row[0], body, conn, _user)
+        child_results.append(child_result)
+
+    return {
+        "parent": parent_result,
+        "children": child_results,
+        "total_published": 1 + len(child_results),
+    }
+
+
+@router.post("/memoirs/{memoir_id}/unpublish")
+def unpublish_memoir(memoir_id: int, conn=Depends(get_conn), _user=Depends(require_admin)):
+    """Unpublish memoir from Ghost (set to draft). If parent, also unpublishes children."""
+    import logging
+    cur = conn.cursor()
+    ghost = _get_ghost_client()
+
+    cur.execute("""
+        SELECT id, ghost_post_id FROM memoir
+        WHERE (id = %s OR parent_id = %s) AND ghost_post_id IS NOT NULL
+    """, (memoir_id, memoir_id))
+    rows = cur.fetchall()
+
+    unpublished = 0
+    for mid, gid in rows:
+        try:
+            ghost.update_post(gid, status="draft")
+            cur.execute("UPDATE memoir SET ghost_status = 'draft', modified_at = now() WHERE id = %s", (mid,))
+            unpublished += 1
+        except Exception as e:
+            logging.getLogger(__name__).warning("Failed to unpublish memoir %d: %s", mid, e)
+
+    conn.commit()
+    return {"unpublished": unpublished}
