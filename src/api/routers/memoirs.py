@@ -618,8 +618,7 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
     ghost_post_id, title, slug, visibility, tags, featured, meta_desc, parent_id, feat_att_id, pub_date = row
 
     vis = body.visibility or visibility or "members"
-
-    # Use meta_description as custom_excerpt (generate separately via /generate-excerpt)
+    is_page = parent_id is not None  # sub-pages publish as Ghost pages (hidden from feed)
 
     # Build tags — include parent title as series tag for sub-pages
     all_tags = list(tags or [])
@@ -632,6 +631,18 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
     # Convert content to HTML, uploading images to Ghost (exclude feature image from body)
     html = _memoir_to_html(cur, memoir_id, ghost=ghost, media_root=settings.media_root, exclude_attachment_id=feat_att_id)
 
+    # For parent posts: append "In this series" links to published children
+    if not parent_id:
+        cur.execute("""
+            SELECT title, slug FROM memoir
+            WHERE parent_id = %s AND slug IS NOT NULL
+            ORDER BY sort_order, start_year NULLS LAST, title
+        """, (memoir_id,))
+        children = cur.fetchall()
+        if children:
+            links = [f'<li><a href="https://blog.mees.st/{c[1]}/">{c[0]}</a></li>' for c in children]
+            html += '\n<hr>\n<h2>In this series</h2>\n<ul>\n' + '\n'.join(links) + '\n</ul>'
+
     # Upload feature image to Ghost if set
     feature_image_url = None
     if feat_att_id:
@@ -642,6 +653,7 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
         "status": body.status, "visibility": vis,
         "tags": all_tags, "featured": featured,
         "custom_excerpt": meta_desc,
+        "is_page": is_page,
     }
     if feature_image_url:
         post_kwargs["feature_image"] = feature_image_url
@@ -678,8 +690,7 @@ def publish_all(memoir_id: int, body: PublishRequest = PublishRequest(), conn=De
     if row[0] is not None:
         raise HTTPException(400, "Can only publish-all from a parent memoir")
 
-    parent_result = publish_memoir(memoir_id, body, conn, _user)
-
+    # Publish children FIRST (as Ghost pages) so parent can link to them
     cur.execute("""
         SELECT id FROM memoir WHERE parent_id = %s
         ORDER BY sort_order, start_year NULLS LAST, title
@@ -688,6 +699,9 @@ def publish_all(memoir_id: int, body: PublishRequest = PublishRequest(), conn=De
     for child_row in cur.fetchall():
         child_result = publish_memoir(child_row[0], body, conn, _user)
         child_results.append(child_result)
+
+    # Then publish parent (as Ghost post, with links to children)
+    parent_result = publish_memoir(memoir_id, body, conn, _user)
 
     return {
         "parent": parent_result,
@@ -704,19 +718,19 @@ def unpublish_memoir(memoir_id: int, conn=Depends(get_conn), _user=Depends(requi
     ghost = _get_ghost_client()
 
     cur.execute("""
-        SELECT id, ghost_post_id FROM memoir
+        SELECT id, ghost_post_id, parent_id FROM memoir
         WHERE (id = %s OR parent_id = %s) AND ghost_post_id IS NOT NULL
     """, (memoir_id, memoir_id))
     rows = cur.fetchall()
 
     unpublished = 0
-    for mid, gid in rows:
+    for mid, gid, pid in rows:
         try:
-            ghost.update_post(gid, status="draft")
+            is_page = pid is not None
+            ghost.update_post(gid, is_page=is_page, status="draft")
             cur.execute("UPDATE memoir SET ghost_status = 'draft', modified_at = now() WHERE id = %s", (mid,))
             unpublished += 1
         except Exception as e:
-            # If Ghost post is gone (404), clear the reference
             if "404" in str(e):
                 cur.execute("UPDATE memoir SET ghost_post_id = NULL, ghost_status = NULL, ghost_published_at = NULL, modified_at = now() WHERE id = %s", (mid,))
                 unpublished += 1

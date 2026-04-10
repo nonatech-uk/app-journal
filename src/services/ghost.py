@@ -7,7 +7,7 @@ import hmac
 import json
 import logging
 import time
-from base64 import b64encode, urlsafe_b64encode
+from base64 import urlsafe_b64encode
 
 import httpx
 
@@ -41,6 +41,10 @@ class GhostClient:
     def _headers(self) -> dict:
         return {"Authorization": f"Ghost {self._make_jwt()}"}
 
+    def _resource(self, is_page: bool) -> str:
+        """Return 'pages' or 'posts' depending on content type."""
+        return "pages" if is_page else "posts"
+
     def create_post(
         self,
         title: str,
@@ -52,9 +56,9 @@ class GhostClient:
         featured: bool = False,
         feature_image: str | None = None,
         custom_excerpt: str | None = None,
+        is_page: bool = False,
     ) -> dict:
-        """Create a Ghost post. Returns the post object."""
-        # Wrap HTML in a mobiledoc HTML card (Ghost's native format)
+        """Create a Ghost post or page. Returns the post/page object."""
         mobiledoc = json.dumps({
             "version": "0.3.1",
             "atoms": [],
@@ -79,25 +83,26 @@ class GhostClient:
         if custom_excerpt:
             post["custom_excerpt"] = custom_excerpt[:300]
 
+        resource = self._resource(is_page)
         resp = httpx.post(
-            f"{self.api_url}/posts/",
-            json={"posts": [post]},
+            f"{self.api_url}/{resource}/",
+            json={resource: [post]},
             headers={**self._headers(), "Content-Type": "application/json"},
             timeout=30,
         )
         resp.raise_for_status()
-        return resp.json()["posts"][0]
+        return resp.json()[resource][0]
 
-    def update_post(self, post_id: str, **fields) -> dict:
-        """Update a Ghost post. Must include updated_at for conflict detection."""
-        # First fetch the current post to get updated_at
+    def update_post(self, post_id: str, is_page: bool = False, **fields) -> dict:
+        """Update a Ghost post or page."""
+        resource = self._resource(is_page)
         resp = httpx.get(
-            f"{self.api_url}/posts/{post_id}/",
+            f"{self.api_url}/{resource}/{post_id}/",
             headers=self._headers(),
             timeout=30,
         )
         resp.raise_for_status()
-        current = resp.json()["posts"][0]
+        current = resp.json()[resource][0]
 
         update: dict = {"updated_at": current["updated_at"]}
 
@@ -108,7 +113,6 @@ class GhostClient:
         if "custom_excerpt" in fields:
             update["custom_excerpt"] = (fields["custom_excerpt"] or "")[:300]
 
-        # Convert HTML to lexical format for updates (Ghost 5.x+ uses lexical)
         if "html" in fields:
             update["lexical"] = json.dumps({
                 "root": {
@@ -125,23 +129,32 @@ class GhostClient:
             update["tags"] = [{"name": t} for t in fields["tags"]]
 
         resp = httpx.put(
-            f"{self.api_url}/posts/{post_id}/",
-            json={"posts": [update]},
+            f"{self.api_url}/{resource}/{post_id}/",
+            json={resource: [update]},
             headers={**self._headers(), "Content-Type": "application/json"},
             timeout=30,
         )
         if resp.status_code != 200:
-            log.error("Ghost update %s failed (%d): %s", post_id, resp.status_code, resp.text[:500])
+            log.error("Ghost update %s/%s failed (%d): %s", resource, post_id, resp.status_code, resp.text[:500])
         resp.raise_for_status()
-        return resp.json()["posts"][0]
+        return resp.json()[resource][0]
 
-    def delete_post(self, post_id: str) -> None:
-        """Delete a Ghost post."""
+    def delete_post(self, post_id: str, is_page: bool = False) -> None:
+        """Delete a Ghost post or page."""
+        resource = self._resource(is_page)
         resp = httpx.delete(
-            f"{self.api_url}/posts/{post_id}/",
+            f"{self.api_url}/{resource}/{post_id}/",
             headers=self._headers(),
             timeout=30,
         )
+        # Try other resource type if 404 (post may have been converted to page or vice versa)
+        if resp.status_code == 404:
+            alt = self._resource(not is_page)
+            resp = httpx.delete(
+                f"{self.api_url}/{alt}/{post_id}/",
+                headers=self._headers(),
+                timeout=30,
+            )
         resp.raise_for_status()
 
     def upload_image(self, image_bytes: bytes, filename: str) -> str:
