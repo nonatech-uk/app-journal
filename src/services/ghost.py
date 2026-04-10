@@ -77,7 +77,7 @@ class GhostClient:
         if feature_image:
             post["feature_image"] = feature_image
         if custom_excerpt:
-            post["custom_excerpt"] = custom_excerpt
+            post["custom_excerpt"] = custom_excerpt[:300]
 
         resp = httpx.post(
             f"{self.api_url}/posts/",
@@ -102,9 +102,11 @@ class GhostClient:
         update: dict = {"updated_at": current["updated_at"]}
 
         for key in ("title", "status", "visibility", "featured",
-                     "slug", "feature_image", "custom_excerpt"):
+                     "slug", "feature_image"):
             if key in fields:
                 update[key] = fields[key]
+        if "custom_excerpt" in fields:
+            update["custom_excerpt"] = (fields["custom_excerpt"] or "")[:300]
 
         # Convert HTML to lexical format for updates (Ghost 5.x+ uses lexical)
         if "html" in fields:

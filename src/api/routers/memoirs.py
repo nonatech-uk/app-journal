@@ -487,7 +487,7 @@ def _generate_excerpt(cur, memoir_id: int, title: str) -> str | None:
             max_tokens=100,
             messages=[{
                 "role": "user",
-                "content": f"Write a compelling 1-2 sentence excerpt for a blog post titled \"{title}\". The excerpt should hook the reader and hint at the story without giving it away. Keep it under 300 characters. Return ONLY the plain text excerpt, no markdown, no headings, no character count, no quotes.",
+                "content": f"Write a compelling 1-2 sentence excerpt for a blog post titled \"{title}\". Rules: hook the reader, hint at the story without spoiling it, under 250 characters, plain text only — no markdown, no headings, no title, no quotes, no character count. Just the excerpt text.\n\nContent:\n{content}",
             }],
         )
         excerpt = response.content[0].text.strip().strip('"')
