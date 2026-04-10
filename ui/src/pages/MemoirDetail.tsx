@@ -16,6 +16,8 @@ export default function MemoirDetail() {
   const [showImmich, setShowImmich] = useState(false)
   const [hasRecording, setHasRecording] = useState(false)
   const [immichIds, setImmichIds] = useState<string[]>([])
+  const [localTags, setLocalTags] = useState<string | null>(null)
+  const [localSlug, setLocalSlug] = useState<string | null>(null)
 
   const { data: memoir, isLoading } = useQuery({
     queryKey: ['memoir', id],
@@ -284,35 +286,55 @@ export default function MemoirDetail() {
             </>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs mb-2">
-          <input
-            value={memoir.tags?.join(', ') || ''}
-            onBlur={e => updateMemoir(Number(id), { tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
-            placeholder="Tags (comma-separated)"
-            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
-          />
-          <input
-            value={memoir.slug || ''}
-            onBlur={e => updateMemoir(Number(id), { slug: e.target.value }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
-            placeholder="URL slug"
-            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
-          />
-          <input
-            type="date"
-            value={memoir.published_date || ''}
-            onChange={e => updateMemoir(Number(id), { published_date: e.target.value || null }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
-            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
-          />
-          <select
-            value={memoir.feature_image_attachment_id ?? ''}
-            onChange={e => updateMemoir(Number(id), { feature_image_attachment_id: e.target.value ? Number(e.target.value) : null }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
-            className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
-          >
-            <option value="">No featured image</option>
-            {images.map(att => (
-              <option key={att.id} value={att.id}>{att.filename || `Photo ${att.id}`}</option>
-            ))}
-          </select>
+        <div className="space-y-2 text-xs mb-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-text-secondary block mb-0.5">Tags</label>
+              <input
+                value={localTags ?? memoir.tags?.join(', ') ?? ''}
+                onChange={e => setLocalTags(e.target.value)}
+                onBlur={e => { updateMemoir(Number(id), { tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }).then(() => { queryClient.invalidateQueries({ queryKey: ['memoir', id] }); setLocalTags(null) }) }}
+                placeholder="memoir, personal, history"
+                className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+              />
+            </div>
+            <div>
+              <label className="text-text-secondary block mb-0.5">URL slug</label>
+              <input
+                value={localSlug ?? memoir.slug ?? ''}
+                onChange={e => setLocalSlug(e.target.value)}
+                onBlur={e => { updateMemoir(Number(id), { slug: e.target.value }).then(() => { queryClient.invalidateQueries({ queryKey: ['memoir', id] }); setLocalSlug(null) }) }}
+                placeholder="the-playhouse-years"
+                className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-text-secondary block mb-0.5">Published date</label>
+              <input
+                type="date"
+                value={memoir.published_date || ''}
+                onChange={e => updateMemoir(Number(id), { published_date: e.target.value || null }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+                className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+              />
+            </div>
+            {images.length > 0 && (
+              <div>
+                <label className="text-text-secondary block mb-0.5">Featured image</label>
+                <select
+                  value={memoir.feature_image_attachment_id ?? ''}
+                  onChange={e => updateMemoir(Number(id), { feature_image_attachment_id: e.target.value ? Number(e.target.value) : null }).then(() => queryClient.invalidateQueries({ queryKey: ['memoir', id] }))}
+                  className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary"
+                >
+                  <option value="">None</option>
+                  {images.map(att => (
+                    <option key={att.id} value={att.id}>{att.filename || `Photo ${att.id}`}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
         </div>
         {memoir.ghost_post_id && (
           <a href={`https://blog.mees.st/${memoir.slug || ''}`} target="_blank" rel="noopener noreferrer"
