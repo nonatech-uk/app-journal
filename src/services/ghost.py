@@ -106,14 +106,17 @@ class GhostClient:
             if key in fields:
                 update[key] = fields[key]
 
-        # Convert HTML to mobiledoc for updates
+        # Convert HTML to lexical format for updates (Ghost 5.x+ uses lexical)
         if "html" in fields:
-            update["mobiledoc"] = json.dumps({
-                "version": "0.3.1",
-                "atoms": [],
-                "cards": [["html", {"html": fields["html"]}]],
-                "markups": [],
-                "sections": [[10, 0]],
+            update["lexical"] = json.dumps({
+                "root": {
+                    "children": [{"type": "html", "html": fields["html"], "version": 1}],
+                    "direction": None,
+                    "format": "",
+                    "indent": 0,
+                    "type": "root",
+                    "version": 1,
+                },
             })
 
         if "tags" in fields:
