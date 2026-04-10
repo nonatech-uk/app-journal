@@ -651,7 +651,12 @@ def unpublish_memoir(memoir_id: int, conn=Depends(get_conn), _user=Depends(requi
             cur.execute("UPDATE memoir SET ghost_status = 'draft', modified_at = now() WHERE id = %s", (mid,))
             unpublished += 1
         except Exception as e:
-            logging.getLogger(__name__).warning("Failed to unpublish memoir %d: %s", mid, e)
+            # If Ghost post is gone (404), clear the reference
+            if "404" in str(e):
+                cur.execute("UPDATE memoir SET ghost_post_id = NULL, ghost_status = NULL, ghost_published_at = NULL, modified_at = now() WHERE id = %s", (mid,))
+                unpublished += 1
+            else:
+                logging.getLogger(__name__).warning("Failed to unpublish memoir %d: %s", mid, e)
 
     conn.commit()
     return {"unpublished": unpublished}
