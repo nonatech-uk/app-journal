@@ -19,13 +19,11 @@ import psycopg2
 from config.settings import settings
 from src.services.daily_summary import run_daily_enrichment
 
-HC_UUID = "ec35d57c-f20f-4bd1-938c-4ee728a8c3b8"
-HC_BASE = "https://hc.mees.st/ping"
-
-
 def ping_hc(suffix: str = ""):
+    if not settings.hc_daily_enrichment:
+        return
     try:
-        httpx.get(f"{HC_BASE}/{HC_UUID}{suffix}", timeout=5)
+        httpx.get(f"{settings.hc_base}/{settings.hc_daily_enrichment}{suffix}", timeout=5)
     except Exception:
         pass
 

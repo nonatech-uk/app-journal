@@ -24,16 +24,14 @@ import psycopg2
 from config.settings import settings
 
 TAG_NAME = "used:journal"
-HC_UUID = "71e4792a-31d9-4dae-b6f1-959363c816cc"
-HC_BASE = "https://hc.mees.st/ping"
 BATCH_SIZE = 500
 
 
 def ping_hc(suffix: str = ""):
-    if not HC_UUID:
+    if not settings.hc_immich_tag_sync:
         return
     try:
-        httpx.get(f"{HC_BASE}/{HC_UUID}{suffix}", timeout=5)
+        httpx.get(f"{settings.hc_base}/{settings.hc_immich_tag_sync}{suffix}", timeout=5)
     except Exception:
         pass
 

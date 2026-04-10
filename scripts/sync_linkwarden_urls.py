@@ -28,7 +28,6 @@ from config.settings import settings
 
 COLLECTION_NAME = "Journal"
 JOURNAL_BASE_URL = "https://journal.mees.st"
-HC_UUID = "04df5f9c-25dc-44fb-9205-f6927a970cdb"
 
 URL_PATTERN = re.compile(r'https?://[^\s\)\]>"\']+')
 MARKDOWN_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\((https?://[^\s\)]+)\)')
@@ -38,10 +37,10 @@ EXCLUDE_DOMAINS = {"hc.mees.st", "localhost", "127.0.0.1", "pix.mees.st"}
 
 
 def ping_hc(suffix: str = ""):
-    if not HC_UUID:
+    if not settings.hc_linkwarden_sync:
         return
     try:
-        httpx.get(f"{settings.hc_base}/{HC_UUID}{suffix}", timeout=5)
+        httpx.get(f"{settings.hc_base}/{settings.hc_linkwarden_sync}{suffix}", timeout=5)
     except Exception:
         pass
 

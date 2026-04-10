@@ -23,15 +23,14 @@ from config.settings import settings
 from src.services.flights.enrich import run_backfill, run_enrichment
 from src.services.flights.narrative import generate_aircraft_narrative
 
-HC_UUID = "30953ebe-ff22-49d0-afae-3829e0465229"
-HC_BASE = "https://hc.mees.st/ping"
-
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 
 def ping_hc(suffix: str = "", body: str = ""):
+    if not settings.hc_flight_enrichment:
+        return
     try:
-        url = f"{HC_BASE}/{HC_UUID}{suffix}"
+        url = f"{settings.hc_base}/{settings.hc_flight_enrichment}{suffix}"
         if body:
             httpx.post(url, content=body, timeout=5)
         else:

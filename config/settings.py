@@ -43,6 +43,10 @@ class Settings(BaseAppSettings):
 
     # Healthchecks
     hc_base: str = "https://hc.mees.st/ping"
+    hc_immich_tag_sync: str = ""
+    hc_daily_enrichment: str = ""
+    hc_flight_enrichment: str = ""
+    hc_linkwarden_sync: str = ""
 
     # Linkwarden
     linkwarden_url: str = "http://192.168.128.9:3000"
