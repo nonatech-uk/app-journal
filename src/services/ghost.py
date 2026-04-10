@@ -54,9 +54,18 @@ class GhostClient:
         custom_excerpt: str | None = None,
     ) -> dict:
         """Create a Ghost post. Returns the post object."""
+        # Wrap HTML in a mobiledoc HTML card (Ghost's native format)
+        mobiledoc = json.dumps({
+            "version": "0.3.1",
+            "atoms": [],
+            "cards": [["html", {"html": html}]],
+            "markups": [],
+            "sections": [[10, 0]],
+        })
+
         post: dict = {
             "title": title,
-            "html": html,
+            "mobiledoc": mobiledoc,
             "status": status,
             "visibility": visibility,
             "featured": featured,
@@ -92,10 +101,20 @@ class GhostClient:
 
         update: dict = {"updated_at": current["updated_at"]}
 
-        for key in ("title", "html", "status", "visibility", "featured",
+        for key in ("title", "status", "visibility", "featured",
                      "slug", "feature_image", "custom_excerpt"):
             if key in fields:
                 update[key] = fields[key]
+
+        # Convert HTML to mobiledoc for updates
+        if "html" in fields:
+            update["mobiledoc"] = json.dumps({
+                "version": "0.3.1",
+                "atoms": [],
+                "cards": [["html", {"html": fields["html"]}]],
+                "markups": [],
+                "sections": [[10, 0]],
+            })
 
         if "tags" in fields:
             update["tags"] = [{"name": t} for t in fields["tags"]]
