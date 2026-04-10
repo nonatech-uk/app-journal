@@ -628,6 +628,10 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
         if parent and parent[0] not in all_tags:
             all_tags.insert(0, parent[0])
 
+    # Add #internal tag for non-public posts (suppresses from Ghost public feed)
+    if vis != "public" and "#internal" not in all_tags:
+        all_tags.append("#internal")
+
     # Convert content to HTML, uploading images to Ghost (exclude feature image from body)
     html = _memoir_to_html(cur, memoir_id, ghost=ghost, media_root=settings.media_root, exclude_attachment_id=feat_att_id)
 
