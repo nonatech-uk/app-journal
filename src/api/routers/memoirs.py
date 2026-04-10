@@ -499,7 +499,7 @@ def _upload_attachment_to_ghost(ghost, cur, attachment_id: int, media_root: str)
         return None
 
 
-def _memoir_to_html(cur, memoir_id: int, ghost=None, media_root: str = "") -> str:
+def _memoir_to_html(cur, memoir_id: int, ghost=None, media_root: str = "", exclude_attachment_id: int | None = None) -> str:
     """Convert memoir content to HTML for Ghost. If ghost client provided, uploads images."""
     import markdown as md
 
@@ -529,6 +529,8 @@ def _memoir_to_html(cur, memoir_id: int, ghost=None, media_root: str = "") -> st
         """, (entry_id,))
         for att in cur.fetchall():
             att_id, att_type, caption = att
+            if att_id == exclude_attachment_id:
+                continue  # skip feature image — Ghost renders it as hero
             caption = caption or ""
 
             if ghost:
@@ -571,8 +573,8 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
         if parent and parent[0] not in all_tags:
             all_tags.insert(0, parent[0])
 
-    # Convert content to HTML, uploading images to Ghost
-    html = _memoir_to_html(cur, memoir_id, ghost=ghost, media_root=settings.media_root)
+    # Convert content to HTML, uploading images to Ghost (exclude feature image from body)
+    html = _memoir_to_html(cur, memoir_id, ghost=ghost, media_root=settings.media_root, exclude_attachment_id=feat_att_id)
 
     # Upload feature image to Ghost if set
     feature_image_url = None
