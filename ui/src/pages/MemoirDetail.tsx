@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchMemoir, updateMemoir, deleteMemoir, createMemoir, autoLinkEntries } from '../api/memoirs.ts'
 import { uploadVoiceNote, attachImmichPhotos, deleteAttachment, uploadAttachment } from '../api/entries'
+import Markdown from 'react-markdown'
 import VoiceRecorder from '../components/VoiceRecorder'
 import ImmichBrowser from '../components/ImmichBrowser'
 
@@ -199,8 +200,25 @@ export default function MemoirDetail() {
 
           {/* Markdown content */}
           {memoir.markdown_text && (
-            <div className="bg-bg-card border border-border rounded-lg p-5 mb-4 text-sm text-text-primary leading-relaxed whitespace-pre-line">
-              {memoir.markdown_text}
+            <div className="bg-bg-card border border-border rounded-lg p-5 mb-4 max-w-none text-text-primary leading-relaxed space-y-2">
+              <Markdown
+                components={{
+                  h1: ({ children }) => <h1 className="text-2xl font-bold mt-4 mb-2">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-xl font-semibold mt-3 mb-2">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-lg font-semibold mt-2 mb-1">{children}</h3>,
+                  p: ({ children }) => <p className="mb-2">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>,
+                  li: ({ children }) => <li>{children}</li>,
+                  blockquote: ({ children }) => <blockquote className="border-l-4 border-accent/30 pl-4 italic text-text-secondary my-2">{children}</blockquote>,
+                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                  em: ({ children }) => <em className="italic">{children}</em>,
+                  hr: () => <hr className="border-border my-4" />,
+                  a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover underline">{children}</a>,
+                }}
+              >
+                {memoir.markdown_text}
+              </Markdown>
             </div>
           )}
         </div>
