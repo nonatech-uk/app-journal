@@ -462,32 +462,39 @@ def _get_ghost_client():
     return GhostClient(settings.ghost_api_url, settings.ghost_admin_key)
 
 
-def _upload_attachment_to_ghost(ghost, attachment_id: int, media_root: str) -> str | None:
+def _upload_attachment_to_ghost(ghost, cur, attachment_id: int, media_root: str) -> str | None:
     """Upload a journal attachment image to Ghost, return the Ghost URL."""
-    import os
     from pathlib import Path
+    import logging
 
-    # Try to find the file on disk
-    # attachment.local_path is relative to media_root
     try:
-        from src.api.deps import get_conn as _gc
-        # We need a separate connection since we're called within a cursor context
-        # Instead, read the file directly using the attachment_id pattern
-        # The media endpoint serves from media_root/{entry_uuid}/{filename}
-        # Simplest: read via the local HTTP endpoint
-        import httpx
-        resp = httpx.get(
-            f"http://localhost:8000/api/v1/media/{attachment_id}",
-            timeout=10,
-            follow_redirects=True,
-        )
-        if resp.status_code != 200:
+        # Get file path from DB
+        cur.execute("""
+            SELECT a.local_path, a.type, e.uuid
+            FROM attachment a
+            JOIN entry e ON e.id = a.entry_id
+            WHERE a.id = %s
+        """, (attachment_id,))
+        row = cur.fetchone()
+        if not row:
             return None
-        content_type = resp.headers.get("content-type", "image/jpeg")
-        ext = "jpg" if "jpeg" in content_type else "png"
-        return ghost.upload_image(resp.content, f"memoir-{attachment_id}.{ext}")
+
+        local_path, att_type, entry_uuid = row
+        ext = "jpg" if att_type == "jpeg" else (att_type or "jpg")
+
+        # Build full path
+        if local_path:
+            full_path = Path(media_root) / local_path
+        else:
+            return None
+
+        if not full_path.exists():
+            logging.getLogger(__name__).warning("Attachment file not found: %s", full_path)
+            return None
+
+        image_bytes = full_path.read_bytes()
+        return ghost.upload_image(image_bytes, f"memoir-{attachment_id}.{ext}")
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning("Failed to upload attachment %d to Ghost: %s", attachment_id, e)
         return None
 
@@ -525,7 +532,7 @@ def _memoir_to_html(cur, memoir_id: int, ghost=None, media_root: str = "") -> st
             caption = caption or ""
 
             if ghost:
-                ghost_url = _upload_attachment_to_ghost(ghost, att_id, media_root)
+                ghost_url = _upload_attachment_to_ghost(ghost, cur, att_id, media_root)
                 img_url = ghost_url or f"https://journal.mees.st/api/v1/media/{att_id}"
             else:
                 img_url = f"https://journal.mees.st/api/v1/media/{att_id}"
@@ -570,7 +577,7 @@ def publish_memoir(memoir_id: int, body: PublishRequest = PublishRequest(), conn
     # Upload feature image to Ghost if set
     feature_image_url = None
     if feat_att_id:
-        feature_image_url = _upload_attachment_to_ghost(ghost, feat_att_id, settings.media_root)
+        feature_image_url = _upload_attachment_to_ghost(ghost, cur, feat_att_id, settings.media_root)
 
     post_kwargs: dict = {
         "title": title, "html": html, "slug": slug,
