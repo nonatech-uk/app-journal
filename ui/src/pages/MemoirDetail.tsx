@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchMemoir, updateMemoir, deleteMemoir, createMemoir, autoLinkEntries, publishMemoir, publishAll, unpublishMemoir, generateExcerpt } from '../api/memoirs.ts'
 import { uploadVoiceNote, attachImmichPhotos, deleteAttachment, uploadAttachment } from '../api/entries'
@@ -10,6 +10,7 @@ import ImmichBrowser from '../components/ImmichBrowser'
 export default function MemoirDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [showAddChild, setShowAddChild] = useState(false)
@@ -26,6 +27,20 @@ export default function MemoirDetail() {
     queryFn: () => fetchMemoir(Number(id)),
     enabled: !!id,
   })
+
+  // Auto-enter edit mode when ?edit=1 is present (e.g. after creation)
+  useEffect(() => {
+    if (searchParams.get('edit') === '1' && memoir && !editing) {
+      setEditTitle(memoir.title)
+      setEditDateLabel(memoir.date_label ?? '')
+      setEditDescription(memoir.description ?? '')
+      setEditMarkdown(memoir.markdown_text ?? '')
+      setEditStartYear(memoir.start_year?.toString() ?? '')
+      setEditEndYear(memoir.end_year?.toString() ?? '')
+      setEditing(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [memoir, searchParams])
 
   // Edit state
   const [editTitle, setEditTitle] = useState('')

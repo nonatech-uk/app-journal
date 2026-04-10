@@ -18,7 +18,7 @@ export default function Memoirs() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['memoirs'] })
       setShowCreate(false)
-      navigate(`/memoir/${result.id}`)
+      navigate(`/memoir/${result.id}?edit=1`)
     },
   })
 
