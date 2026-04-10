@@ -422,6 +422,37 @@ CREATE TABLE IF NOT EXISTS entry_event (
 );
 CREATE INDEX IF NOT EXISTS idx_entry_event_event ON entry_event (event_id);
 
+
+-- ============================================================
+-- Memoirs — narrative sections covering periods of life
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS memoir (
+    id              serial PRIMARY KEY,
+    parent_id       integer REFERENCES memoir(id) ON DELETE CASCADE,
+    title           text NOT NULL,
+    start_year      integer,
+    start_month     integer,
+    end_year        integer,
+    end_month       integer,
+    date_label      text,
+    description     text,
+    entry_id        integer REFERENCES entry(id) ON DELETE SET NULL,
+    cover_asset_id  text,
+    sort_order      integer DEFAULT 0,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    modified_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_memoir_parent ON memoir (parent_id);
+CREATE INDEX IF NOT EXISTS idx_memoir_years ON memoir (start_year, end_year);
+
+CREATE TABLE IF NOT EXISTS memoir_entry (
+    memoir_id   integer NOT NULL REFERENCES memoir(id) ON DELETE CASCADE,
+    entry_id    integer NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+    PRIMARY KEY (memoir_id, entry_id)
+);
+
 -- ============================================================
 -- Flights (migrated from mylocation)
 -- ============================================================

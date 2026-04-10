@@ -42,7 +42,17 @@ def reverse_geocode(lat: float, lon: float) -> dict:
         resp.raise_for_status()
         data = resp.json()
         addr = data.get("address", {})
-        result["place_name"] = data.get("display_name", "").split(",")[0].strip() or None
+        result["place_name"] = (
+            addr.get("suburb")
+            or addr.get("neighbourhood")
+            or addr.get("hamlet")
+            or addr.get("village")
+            or addr.get("town")
+            or addr.get("city_district")
+            or addr.get("city")
+            or data.get("display_name", "").split(",")[0].strip()
+            or None
+        )
         result["locality"] = addr.get("city") or addr.get("town") or addr.get("village") or None
         result["admin_area"] = addr.get("state") or addr.get("county") or None
         result["country"] = addr.get("country") or None

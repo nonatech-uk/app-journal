@@ -420,3 +420,63 @@ export interface EventsResponse {
   years: { year: number; count: number }[]
   types: { type: string; count: number }[]
 }
+
+
+// ---------------------------------------------------------------------------
+// Memoirs
+// ---------------------------------------------------------------------------
+
+export interface MemoirSummary {
+  id: number
+  parent_id: number | null
+  title: string
+  start_year: number | null
+  start_month: number | null
+  end_year: number | null
+  end_month: number | null
+  date_label: string | null
+  description: string | null
+  entry_id: number | null
+  cover_asset_id: string | null
+  sort_order: number
+  created_at: string
+  modified_at: string
+  child_count: number
+  attachment_count: number
+}
+
+export interface MemoirAttachment {
+  id: number
+  uuid: string | null
+  type: string
+  filename: string | null
+  file_size: number | null
+  width: number | null
+  height: number | null
+  caption: string | null
+  transcription: string | null
+  media_url: string
+  thumbnail_url: string
+  immich_asset_id: string | null
+}
+
+export interface MemoirLinkedEntry {
+  id: number
+  uuid: string
+  created_at: string
+  preview: string | null
+  place_name: string | null
+}
+
+export interface MemoirDetail extends MemoirSummary {
+  markdown_text: string | null
+  attachments: MemoirAttachment[]
+  children: MemoirSummary[]
+  linked_entries: MemoirLinkedEntry[]
+  parent: { id: number; title: string } | null
+}
+
+export interface MemoirsResponse {
+  items: MemoirSummary[]
+  total: number
+}

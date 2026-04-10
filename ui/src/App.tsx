@@ -22,6 +22,8 @@ import AircraftDetail from './pages/AircraftDetail'
 import FlightDetail from './pages/FlightDetail'
 import GaFlightDetail from './pages/GaFlightDetail'
 import RailDetail from './pages/RailDetail'
+import Memoirs from './pages/Memoirs'
+import MemoirDetail from './pages/MemoirDetail'
 
 export default function App() {
   return (
@@ -49,6 +51,8 @@ export default function App() {
           <Route path="/activities" element={<Activities />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />
           <Route path="/activity-types" element={<ActivityTypes />} />
+          <Route path="/memoirs" element={<Memoirs />} />
+          <Route path="/memoir/:id" element={<MemoirDetail />} />
           <Route path="/places" element={<Places />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="*" element={<div className="text-text-secondary">Page not found</div>} />

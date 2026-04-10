@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/map', label: 'Map', icon: '◈' },
   { to: '/trips', label: 'Trips', icon: '◇' },
   { to: '/events', label: 'Events', icon: '◉' },
+  { to: '/memoirs', label: 'Memoirs', icon: '◧' },
   { to: '/travel', label: 'Travel', icon: '▷' },
   { to: '/activities', label: 'Activities', icon: '◆' },
   { to: '/event-types', label: 'Event Types', icon: '◔' },

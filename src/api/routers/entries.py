@@ -148,6 +148,7 @@ def list_entries(
     cur = conn.cursor()
     conditions = [
         "(e.entry_type != 'daily_summary' OR NOT EXISTS (SELECT 1 FROM entry c WHERE c.parent_entry_id = e.id))",
+        "e.entry_type != 'memoir'",
     ]
     params: dict = {"limit": limit + 1}
 
@@ -549,13 +550,24 @@ def create_entry(
     # Location
     if body.location:
         loc = body.location
+        place_id = None
+        place_label = None
+        if loc.latitude and loc.longitude:
+            from src.api.routers.places import _fetch_places, _match_place
+            entry_date = datetime(now.year, now.month, now.day).date()
+            match = _match_place(loc.latitude, loc.longitude, entry_date, _fetch_places())
+            if match:
+                place_id = match["id"]
+                place_label = match["name"]
         cur.execute(
             """INSERT INTO location (entry_id, latitude, longitude, altitude,
-                                     place_name, address, locality, admin_area, country)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                     place_name, address, locality, admin_area, country,
+                                     place_id, place_label)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 entry_id, loc.latitude, loc.longitude, loc.altitude,
                 loc.place_name, loc.address, loc.locality, loc.admin_area, loc.country,
+                place_id, place_label,
             ),
         )
 
