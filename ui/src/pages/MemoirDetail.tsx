@@ -6,6 +6,7 @@ import { uploadVoiceNote, attachImmichPhotos, deleteAttachment, uploadAttachment
 import Markdown from 'react-markdown'
 import VoiceRecorder from '../components/VoiceRecorder'
 import ImmichBrowser from '../components/ImmichBrowser'
+import ImageLightbox from '../components/ImageLightbox'
 
 export default function MemoirDetail() {
   const { id } = useParams<{ id: string }>()
@@ -21,6 +22,7 @@ export default function MemoirDetail() {
   const [localSlug, setLocalSlug] = useState<string | null>(null)
   const [localExcerpt, setLocalExcerpt] = useState<string | null>(null)
   const [publishOn, setPublishOn] = useState('')
+  const [lightboxAtt, setLightboxAtt] = useState<{ src: string; alt: string; downloadUrl: string; filename: string } | null>(null)
 
   const { data: memoir, isLoading } = useQuery({
     queryKey: ['memoir', id],
@@ -268,6 +270,15 @@ export default function MemoirDetail() {
                   em: ({ children }) => <em className="italic">{children}</em>,
                   hr: () => <hr className="border-border my-4" />,
                   a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover underline">{children}</a>,
+                  img: ({ src, alt }) => (
+                    <img
+                      src={src}
+                      alt={alt || ''}
+                      className="rounded max-w-full cursor-pointer"
+                      loading="lazy"
+                      onClick={() => src && setLightboxAtt({ src, alt: alt || '', downloadUrl: src, filename: alt || 'photo' })}
+                    />
+                  ),
                 }}
               >
                 {memoir.markdown_text}
@@ -420,7 +431,8 @@ export default function MemoirDetail() {
               {images.map(att => (
                 <div key={att.id} className="relative group">
                   <img src={att.thumbnail_url} alt={att.caption || ''} loading="lazy"
-                    className="w-full aspect-square object-cover rounded-lg" />
+                    className="w-full aspect-square object-cover rounded-lg cursor-pointer"
+                    onClick={() => setLightboxAtt({ src: att.media_url, alt: att.caption || '', downloadUrl: att.media_url, filename: att.filename || 'photo' })} />
                   <div className="absolute bottom-1 left-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => copyLink(att)}
                       className="px-1.5 py-0.5 bg-black/60 text-white rounded text-xs">Link</button>
@@ -580,6 +592,16 @@ export default function MemoirDetail() {
           ))}
         </div>
       </div>
+
+      {lightboxAtt && (
+        <ImageLightbox
+          src={lightboxAtt.src}
+          alt={lightboxAtt.alt}
+          onClose={() => setLightboxAtt(null)}
+          downloadUrl={lightboxAtt.downloadUrl}
+          downloadFilename={lightboxAtt.filename}
+        />
+      )}
 
       {/* Linked journal entries */}
       {memoir.linked_entries.length > 0 && (
