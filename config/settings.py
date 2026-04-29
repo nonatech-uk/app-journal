@@ -21,6 +21,10 @@ class Settings(BaseAppSettings):
     mylocation_db_name: str = "mylocation"
     mylocation_db_user: str = "mylocation"
     mylocation_db_password: str = ""
+    # Write-capable DSN for HA Companion sync (the regular mylocation_db_* creds are
+    # mcp_readonly and can't INSERT into gps_points).
+    mylocation_db_writer_user: str = "mylocation"
+    mylocation_db_writer_password: str = ""
     scrobble_db_name: str = "scrobble"
     scrobble_db_user: str = "scrobble"
     scrobble_db_password: str = ""
@@ -37,9 +41,14 @@ class Settings(BaseAppSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     mylocation_public_url: str = "https://locs.mees.st"
+    mylocation_api_url: str = ""
 
     # Immich album exclusion
     immich_album_exclude_patterns: str = "^_"
+
+    # Home Assistant (for HA Companion sync)
+    ha_url: str = "http://homeassistant:8123"
+    ha_token: str = ""
 
     # Healthchecks
     hc_base: str = "https://hc.mees.st/ping"
@@ -47,6 +56,7 @@ class Settings(BaseAppSettings):
     hc_daily_enrichment: str = ""
     hc_flight_enrichment: str = ""
     hc_linkwarden_sync: str = ""
+    hc_ha_companion_sync: str = ""
 
     # Linkwarden
     linkwarden_url: str = "http://192.168.128.9:3000"
