@@ -552,6 +552,79 @@ def get_aircraft_image_by_reg(
 # Rail Journeys
 # ---------------------------------------------------------------------------
 
+class RailJourneyLeg(BaseModel):
+    date: str
+    time: str | None = None
+    from_station: str
+    from_code: str | None = None
+    to_station: str
+    to_code: str | None = None
+    ticket_type: str | None = None
+    ticket_class: str | None = None
+    direction: str | None = None
+    train: str | None = None
+    via: str | None = None
+    price: float | None = None
+
+
+class RailJourneyIngest(BaseModel):
+    operator: str | None = None
+    reference: str | None = None
+    currency: str | None = None
+    journeys: list[RailJourneyLeg]
+    source: str = "pipeline"
+
+
+@router.post("/rail-journeys/ingest")
+def ingest_rail_journeys(
+    body: RailJourneyIngest,
+    conn=Depends(get_conn),
+    _=Depends(_check_pipeline_auth),
+):
+    """Ingest train journeys from a single booking (one or more legs)."""
+    cur = conn.cursor()
+    created: list[int] = []
+    duplicates = 0
+
+    for leg in body.journeys:
+        if body.reference and leg.direction:
+            cur.execute(
+                """SELECT id FROM rail_journey
+                   WHERE reference = %s AND direction = %s""",
+                (body.reference, leg.direction),
+            )
+        else:
+            cur.execute(
+                """SELECT id FROM rail_journey
+                   WHERE date = %s AND from_station = %s AND to_station = %s
+                     AND COALESCE(time::text, '') = COALESCE(%s, '')""",
+                (leg.date, leg.from_station, leg.to_station, leg.time),
+            )
+        if cur.fetchone():
+            duplicates += 1
+            continue
+
+        cur.execute(
+            """INSERT INTO rail_journey (date, time, from_station, from_code,
+                                          to_station, to_code, operator, ticket_type,
+                                          direction, train, via, reference,
+                                          price, currency, source)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               RETURNING id""",
+            (leg.date, leg.time, leg.from_station, leg.from_code,
+             leg.to_station, leg.to_code, body.operator,
+             leg.ticket_type or leg.ticket_class, leg.direction,
+             leg.train, leg.via, body.reference,
+             leg.price, body.currency, body.source),
+        )
+        created.append(cur.fetchone()[0])
+
+    conn.commit()
+    if not created and duplicates:
+        return {"status": "duplicate", "ids": [], "duplicates": duplicates}
+    return {"status": "created", "ids": created, "duplicates": duplicates}
+
+
 @router.get("/rail-journeys")
 def list_rail_journeys(
     year: int | None = Query(None),
