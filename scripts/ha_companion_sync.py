@@ -141,7 +141,7 @@ GPS_INSERT_SQL = """
         device_id, device_name, ts, lat, lon, altitude_m, altitude_ft,
         speed_mph, speed_kmh, direction, accuracy_m, battery_pct, source_type,
         connection_type, wifi_ssid, wifi_bssid, vertical_accuracy_m,
-        motion_activity, motion_confidence, raw_payload, geom
+        motion_activity, motion_confidence, poi, in_regions, raw_payload, geom
     ) VALUES %s
     ON CONFLICT (device_id, ts) DO NOTHING
 """
@@ -151,9 +151,11 @@ GPS_INSERT_TEMPLATE = """(
     %(altitude_m)s, %(altitude_ft)s, %(speed_mph)s, %(speed_kmh)s,
     %(direction)s, %(accuracy_m)s, %(battery_pct)s, %(source_type)s,
     %(connection_type)s, %(wifi_ssid)s, %(wifi_bssid)s, %(vertical_accuracy_m)s,
-    %(motion_activity)s, %(motion_confidence)s, %(raw_payload)s,
+    %(motion_activity)s, %(motion_confidence)s, %(poi)s, %(in_regions)s, %(raw_payload)s,
     ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)
 )"""
+
+ZONE_STATE_NOT_A_REGION = {"not_home", "unknown", "unavailable", ""}
 
 M_TO_FT = 3.28084
 MPS_TO_KMH = 3.6
@@ -206,6 +208,16 @@ def build_gps_rows(history: dict[str, list[dict]]) -> list[dict]:
         activity_attrs = activity_row.get("attributes") or {}
         geocode_row = _attr_lookup(geocode_stream, ts)
 
+        geocode_attrs = (geocode_row.get("attributes") or {}) if geocode_row else {}
+        sub_locality = geocode_attrs.get("Sub Locality")
+        locality = geocode_attrs.get("Locality")
+        poi = sub_locality if sub_locality and sub_locality != "N/A" else (
+            locality if locality and locality != "N/A" else None
+        )
+
+        zone_state = (tracker.get("state") or "").strip()
+        in_regions = [zone_state] if zone_state and zone_state.lower() not in ZONE_STATE_NOT_A_REGION else None
+
         raw_payload = {
             "device_tracker_state": tracker.get("state"),
             "tracker_attributes": attrs,
@@ -240,6 +252,8 @@ def build_gps_rows(history: dict[str, list[dict]]) -> list[dict]:
             "vertical_accuracy_m": parse_float(attrs.get("vertical_accuracy")),
             "motion_activity": None if is_unavailable(activity_state) else activity_state,
             "motion_confidence": activity_attrs.get("Confidence"),
+            "poi": poi,
+            "in_regions": in_regions,
             "raw_payload": Json(raw_payload),
         })
     return rows
