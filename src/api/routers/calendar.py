@@ -1,11 +1,167 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
-from src.api.deps import get_conn, get_current_user
+from src.api.deps import get_conn, get_current_user, require_admin
 from src.api.models import CalendarDay, CalendarMonth, EntrySummary, LocationOut, MusicOut, OnThisDayEntry, WeatherOut
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Calendar sync — ignore rules + source allow-list
+# ---------------------------------------------------------------------------
+
+class IgnoreRuleCreate(BaseModel):
+    kind: str  # 'substring' | 'exact' | 'regex'
+    value: str
+    note: str | None = None
+
+
+class IgnoreRuleUpdate(BaseModel):
+    active: bool | None = None
+    value: str | None = None
+    note: str | None = None
+
+
+class CalendarSourceCreate(BaseModel):
+    account: str
+    calendar: str
+
+
+class CalendarSourceUpdate(BaseModel):
+    active: bool | None = None
+
+
+_VALID_KINDS = {"substring", "exact", "regex"}
+
+
+@router.get("/calendar/ignore")
+def list_ignore_rules(conn=Depends(get_conn), _user=Depends(get_current_user)):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, kind, value, active, note, created_at "
+        "FROM calendar_ignore_rule ORDER BY active DESC, id DESC"
+    )
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+@router.post("/calendar/ignore", status_code=201)
+def create_ignore_rule(
+    body: IgnoreRuleCreate,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    if body.kind not in _VALID_KINDS:
+        raise HTTPException(400, f"kind must be one of {sorted(_VALID_KINDS)}")
+    if not (body.value or "").strip():
+        raise HTTPException(400, "value cannot be empty")
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO calendar_ignore_rule (kind, value, note) VALUES (%s, %s, %s) RETURNING id",
+        (body.kind, body.value.strip(), body.note),
+    )
+    rule_id = cur.fetchone()[0]
+    conn.commit()
+    return {"id": rule_id, "kind": body.kind, "value": body.value.strip(), "active": True, "note": body.note}
+
+
+@router.patch("/calendar/ignore/{rule_id}")
+def update_ignore_rule(
+    rule_id: int,
+    body: IgnoreRuleUpdate,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    cur = conn.cursor()
+    updates, params = [], []
+    if body.active is not None:
+        updates.append("active = %s")
+        params.append(body.active)
+    if body.value is not None:
+        if not body.value.strip():
+            raise HTTPException(400, "value cannot be empty")
+        updates.append("value = %s")
+        params.append(body.value.strip())
+    if body.note is not None:
+        updates.append("note = %s")
+        params.append(body.note)
+    if not updates:
+        raise HTTPException(400, "no fields to update")
+    params.append(rule_id)
+    cur.execute(f"UPDATE calendar_ignore_rule SET {', '.join(updates)} WHERE id = %s", params)
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Ignore rule not found")
+    conn.commit()
+    return {"updated": True}
+
+
+@router.delete("/calendar/ignore/{rule_id}")
+def delete_ignore_rule(rule_id: int, conn=Depends(get_conn), _user=Depends(require_admin)):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM calendar_ignore_rule WHERE id = %s", (rule_id,))
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Ignore rule not found")
+    conn.commit()
+    return {"deleted": True}
+
+
+@router.get("/calendar/sources")
+def list_calendar_sources(conn=Depends(get_conn), _user=Depends(get_current_user)):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, account, calendar, active FROM calendar_source "
+        "ORDER BY active DESC, account, calendar"
+    )
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+@router.post("/calendar/sources", status_code=201)
+def create_calendar_source(
+    body: CalendarSourceCreate,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO calendar_source (account, calendar) VALUES (%s, %s) "
+        "ON CONFLICT (account, calendar) DO UPDATE SET active = true "
+        "RETURNING id, active",
+        (body.account.strip(), body.calendar.strip()),
+    )
+    source_id, active = cur.fetchone()
+    conn.commit()
+    return {"id": source_id, "account": body.account.strip(), "calendar": body.calendar.strip(), "active": active}
+
+
+@router.patch("/calendar/sources/{source_id}")
+def update_calendar_source(
+    source_id: int,
+    body: CalendarSourceUpdate,
+    conn=Depends(get_conn),
+    _user=Depends(require_admin),
+):
+    if body.active is None:
+        raise HTTPException(400, "no fields to update")
+    cur = conn.cursor()
+    cur.execute("UPDATE calendar_source SET active = %s WHERE id = %s", (body.active, source_id))
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Calendar source not found")
+    conn.commit()
+    return {"updated": True}
+
+
+@router.delete("/calendar/sources/{source_id}")
+def delete_calendar_source(source_id: int, conn=Depends(get_conn), _user=Depends(require_admin)):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM calendar_source WHERE id = %s", (source_id,))
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Calendar source not found")
+    conn.commit()
+    return {"deleted": True}
 
 
 @router.get("/calendar", response_model=list[CalendarMonth])

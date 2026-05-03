@@ -164,7 +164,7 @@ def list_events(
     _user=Depends(get_current_user),
 ):
     cur = conn.cursor()
-    conditions = []
+    conditions = ["e.deleted_at IS NULL"]
     params: dict = {"limit": limit, "offset": offset}
 
     if year:
@@ -177,14 +177,16 @@ def list_events(
         conditions.append("e.trip_id = %(trip_id)s")
         params["trip_id"] = trip_id
 
-    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    where = "WHERE " + " AND ".join(conditions)
 
     cur.execute(f"""
         SELECT e.id, e.title, e.event_date, e.end_date,
                et.name AS event_type, e.event_type_id,
                e.notes, e.fuzzy_date, e.latitude, e.longitude,
                e.place_id, e.place_label, e.trip_id,
-               t.title AS trip_title
+               t.title AS trip_title,
+               e.start_time, e.end_time, e.all_day,
+               e.source, e.calendar_account, e.calendar_name
         FROM event e
         JOIN event_type et ON et.id = e.event_type_id
         LEFT JOIN trip t ON t.id = e.trip_id
@@ -202,12 +204,13 @@ def list_events(
     """, params)
     total = cur.fetchone()[0]
 
-    cur.execute("SELECT EXTRACT(YEAR FROM event_date)::int AS y, count(*) FROM event GROUP BY y ORDER BY y DESC")
+    cur.execute("SELECT EXTRACT(YEAR FROM event_date)::int AS y, count(*) FROM event WHERE deleted_at IS NULL GROUP BY y ORDER BY y DESC")
     years = [{"year": r[0], "count": r[1]} for r in cur.fetchall()]
 
     cur.execute("""
         SELECT et.name, count(*) FROM event e
         JOIN event_type et ON et.id = e.event_type_id
+        WHERE e.deleted_at IS NULL
         GROUP BY et.name ORDER BY count(*) DESC
     """)
     types = [{"type": r[0], "count": r[1]} for r in cur.fetchall()]
@@ -388,6 +391,7 @@ def link_all_events_to_entry(
         INSERT INTO entry_event (entry_id, event_id)
         SELECT %s, id FROM event
         WHERE event_date <= %s AND COALESCE(end_date, event_date) >= %s
+          AND deleted_at IS NULL
         ON CONFLICT DO NOTHING
     """, (entry_id, entry_date, entry_date))
     count = cur.rowcount
@@ -466,11 +470,13 @@ def _fetch_event_detail(cur, event_id: int) -> dict | None:
                e.notes, e.fuzzy_date, e.latitude, e.longitude,
                e.place_id, e.place_label, e.trip_id,
                t.title AS trip_title,
-               e.created_at, e.modified_at
+               e.created_at, e.modified_at,
+               e.start_time, e.end_time, e.all_day,
+               e.source, e.calendar_account, e.calendar_name
         FROM event e
         JOIN event_type et ON et.id = e.event_type_id
         LEFT JOIN trip t ON t.id = e.trip_id
-        WHERE e.id = %s
+        WHERE e.id = %s AND e.deleted_at IS NULL
     """, (event_id,))
     row = cur.fetchone()
     if not row:

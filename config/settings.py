@@ -57,6 +57,12 @@ class Settings(BaseAppSettings):
     hc_flight_enrichment: str = ""
     hc_linkwarden_sync: str = ""
     hc_ha_companion_sync: str = ""
+    hc_calendar_sync: str = ""
+
+    # Apple Calendar sync (via mac_studio MCP)
+    mcp_gateway_url: str = "http://mcp-local:8080/mcp"
+    mcp_gateway_key: str = ""
+    calendar_local_tz: str = "Europe/London"
 
     # Linkwarden
     linkwarden_url: str = "http://192.168.128.9:3000"

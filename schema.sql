@@ -389,24 +389,56 @@ CREATE TABLE IF NOT EXISTS event_type (
 );
 
 CREATE TABLE IF NOT EXISTS event (
-    id              serial PRIMARY KEY,
-    title           text NOT NULL,
-    event_date      date NOT NULL,
-    end_date        date,
-    event_type_id   integer NOT NULL REFERENCES event_type(id),
-    notes           text,
-    fuzzy_date      boolean NOT NULL DEFAULT false,
-    latitude        double precision,
-    longitude       double precision,
-    place_id        integer,
-    place_label     text,
-    trip_id         integer REFERENCES trip(id) ON DELETE SET NULL,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    modified_at     timestamptz NOT NULL DEFAULT now()
+    id               serial PRIMARY KEY,
+    title            text NOT NULL,
+    event_date       date NOT NULL,
+    end_date         date,
+    event_type_id    integer NOT NULL REFERENCES event_type(id),
+    notes            text,
+    fuzzy_date       boolean NOT NULL DEFAULT false,
+    latitude         double precision,
+    longitude        double precision,
+    place_id         integer,
+    place_label      text,
+    trip_id          integer REFERENCES trip(id) ON DELETE SET NULL,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    modified_at      timestamptz NOT NULL DEFAULT now(),
+    -- External sync (Apple Calendar etc.) — NULL for manual events.
+    external_id      text,
+    source           text,
+    calendar_account text,
+    calendar_name    text,
+    start_time       timestamptz,
+    end_time         timestamptz,
+    all_day          boolean NOT NULL DEFAULT false,
+    deleted_at       timestamptz
 );
 CREATE INDEX IF NOT EXISTS idx_event_date ON event (event_date);
 CREATE INDEX IF NOT EXISTS idx_event_type_id ON event (event_type_id);
 CREATE INDEX IF NOT EXISTS idx_event_trip ON event (trip_id) WHERE trip_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_external_day
+    ON event (external_id, event_date) WHERE external_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_event_source
+    ON event (source) WHERE source IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_event_deleted_at
+    ON event (deleted_at) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS calendar_ignore_rule (
+    id          serial PRIMARY KEY,
+    kind        text NOT NULL CHECK (kind IN ('substring','exact','regex')),
+    value       text NOT NULL,
+    active      boolean NOT NULL DEFAULT true,
+    note        text,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS calendar_source (
+    id          serial PRIMARY KEY,
+    account     text NOT NULL,
+    calendar    text NOT NULL,
+    active      boolean NOT NULL DEFAULT true,
+    UNIQUE (account, calendar)
+);
 
 CREATE TABLE IF NOT EXISTS event_document (
     event_id        integer NOT NULL REFERENCES event(id) ON DELETE CASCADE,
