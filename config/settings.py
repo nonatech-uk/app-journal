@@ -40,7 +40,7 @@ class Settings(BaseAppSettings):
     tautulli_api_key: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""
-    mylocation_public_url: str = "https://locs.mees.st"
+    mylocation_public_url: str = "https://locations.mees.st"
     mylocation_api_url: str = ""
 
     # Immich album exclusion
