@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from src.api.deps import close_pool, init_pool
-from src.api.routers import activities, auth, calendar, context, daily_summary, enrichment, entries, events, flights, immich, journals, map, media, memoirs, people, places, scrobbles, search, stats, tags, transport, trips, watches
+from src.api.routers import activities, auth, calendar, context, daily_summary, enrichment, entries, events, flights, gps, immich, journals, map, media, memoirs, people, places, scrobbles, search, stats, tags, transport, trips, watches
 
 from mees_shared.usage_tracker import init_usage_tracker, shutdown_usage_tracker, track_usage_middleware, usage_pageview_router
 from mees_shared.dashboard import register_with_dashboard
@@ -71,6 +71,7 @@ app.include_router(map.router, prefix="/api/v1", tags=["map"])
 app.include_router(media.router, prefix="/api/v1", tags=["media"])
 app.include_router(stats.router, prefix="/api/v1", tags=["stats"])
 app.include_router(enrichment.router, prefix="/api/v1", tags=["enrichment"])
+app.include_router(gps.router, prefix="/api/v1", tags=["gps"])
 app.include_router(context.router, prefix="/api/v1", tags=["context"])
 app.include_router(flights.router, prefix="/api/v1", tags=["flights"])
 app.include_router(activities.router, prefix="/api/v1", tags=["activities"])

@@ -360,7 +360,6 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
         WHERE entry_id = %s AND skiing_day_id IS NULL
         ORDER BY start_time NULLS LAST
     """, (entry_id,))
-    locs_base = settings.mylocation_public_url.rstrip("/")
     activities = [
         EntryActivityOut(
             id=r[0], activity_type=r[1], title=r[2], activity_date=r[3],
@@ -368,7 +367,7 @@ def get_entry(entry_id: int, conn=Depends(get_conn), _user=Depends(get_current_u
             distance_km=r[5], duration_seconds=r[6], moving_time_seconds=r[7],
             elevation_gain=r[8], source=r[9], strava_activity_id=r[10],
             has_track=r[10] is not None,
-            track_svg_url=f"{locs_base}/api/v1/gps/activity-track-svg?strava_id={r[10]}" if r[10] else None,
+            track_svg_url=f"/api/v1/gps/activity-track-svg?strava_id={r[10]}" if r[10] else None,
         )
         for r in cur.fetchall()
     ]

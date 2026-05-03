@@ -128,7 +128,7 @@ def get_enrichment(entry_id: int, conn=Depends(get_conn), _user=Depends(get_curr
             date_str = entry_date.strftime("%Y-%m-%d")
             base = settings.mylocation_public_url.rstrip("/")
             gps_track["track_url"] = f"{base}/explorer?date={date_str}"
-            gps_track["track_svg_url"] = f"{base}/api/v1/gps/track-svg?date={date_str}"
+            gps_track["track_svg_url"] = f"/api/v1/gps/track-svg?date={date_str}"
 
             # Start-of-day place
             first = _safe_query(
